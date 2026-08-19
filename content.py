@@ -1,253 +1,258 @@
-"""Game content for the child-friendly financial life simulation."""
+"""Child-friendly content for Future Money Quest."""
 
-PROFESSIONS = [
+PRODUCTS = {
+    "cash": {
+        "name": "現金・預金",
+        "emoji": "🪙",
+        "color": "#55B6A8",
+        "risk": "小さい",
+        "story": "すぐ使える『お金の水筒』。急な出費のときに役立つよ。",
+        "detail": "値段はほとんど動きません。その代わり、大きく増えにくく、物価が上がると買える物が減ることがあります。",
+        "nisa": "対象外。預金はNISAで買う金融商品ではありません。",
+    },
+    "bond": {
+        "name": "債券・バランス投信",
+        "emoji": "🛟",
+        "color": "#78A7E8",
+        "risk": "小～中",
+        "story": "国や会社にお金を貸したり、株と債券をまぜる『ゆれを小さくする船』。",
+        "detail": "株より値動きが小さい傾向ですが、金利や発行元の状態で損をすることもあります。バランス投信は複数の資産をひとまとめにします。",
+        "nisa": "金融庁の条件を満たす投資信託なら対象になり得ます。商品ごとの確認が必要です。",
+    },
+    "index": {
+        "name": "世界株インデックス",
+        "emoji": "🌏",
+        "color": "#66BE73",
+        "risk": "中",
+        "story": "世界中のたくさんの会社を少しずつ集めた『会社の詰め合わせパック』。",
+        "detail": "1社だけに賭けず分散できます。世界の会社が成長すれば増える可能性がありますが、不況では大きく下がる年もあります。",
+        "nisa": "金融庁の条件を満たす長期・積立・分散向け投資信託なら対象になり得ます。",
+    },
+    "stock": {
+        "name": "個別株",
+        "emoji": "🏢",
+        "color": "#FFB64D",
+        "risk": "大きい",
+        "story": "応援したい1つの会社の『小さなオーナー券』を持つイメージ。",
+        "detail": "会社が伸びると大きく増えることがありますが、失敗すると大きく減ることも。会社を調べる力と分散が大切です。",
+        "nisa": "このゲームが扱う0～17歳のつみたて枠では対象外として扱います。",
+    },
+    "challenge": {
+        "name": "暗号資産・FX",
+        "emoji": "🎢",
+        "color": "#E8718D",
+        "risk": "とても大きい",
+        "story": "上にも下にも速く動く『ジェットコースター』。なくなって困るお金は乗せないでね。",
+        "detail": "短期間で大きく増減し、元本を失うことがあります。FXは取引方法によって預けた額以上の損失もあり得ます。",
+        "nisa": "対象外。暗号資産とFXはNISA商品ではありません。",
+    },
+}
+
+
+# Annual salaries are rounded learning-game reference values in units of 万円.
+# Probabilities are explicitly game parameters, not employment statistics.
+CAREERS = [
     {
-        "name": "ものづくりエンジニア",
-        "emoji": "🛠️",
+        "key": "programmer",
+        "name": "AI・プログラマー",
+        "emoji": "💻",
+        "salary": 579,
+        "probability": 55,
+        "skills": "算数・英語・コードで作る練習",
+        "message": "コンピューターにお願いする言葉を書き、便利な仕組みを作る仕事。",
+    },
+    {
+        "key": "game_creator",
+        "name": "ゲームクリエイター",
+        "emoji": "🎮",
+        "salary": 583,
+        "probability": 35,
+        "skills": "企画・絵・音・プログラミング",
+        "message": "遊ぶ人をワクワクさせる世界とルールを、チームで作る仕事。",
+    },
+    {
+        "key": "doctor",
+        "name": "医師",
+        "emoji": "🩺",
+        "salary": 1100,
+        "probability": 12,
+        "skills": "理科・長い学習・人を思う力",
+        "message": "病気やけがを調べ、治療して人の命と健康を支える仕事。",
+    },
+    {
+        "key": "vet",
+        "name": "獣医師",
+        "emoji": "🐾",
+        "salary": 681,
+        "probability": 15,
+        "skills": "生物・長い学習・動物への責任",
+        "message": "動物の病気を治し、人と動物が元気に暮らせるよう助ける仕事。",
+    },
+    {
+        "key": "architect",
+        "name": "建築士",
+        "emoji": "🏠",
+        "salary": 640,
+        "probability": 30,
+        "skills": "算数・図工・安全を考える力",
+        "message": "家や建物を、安全で使いやすくなるよう設計する仕事。",
+    },
+    {
+        "key": "teacher",
+        "name": "先生・保育の仕事",
+        "emoji": "🧑‍🏫",
+        "salary": 443,
+        "probability": 45,
+        "skills": "伝える力・聞く力・資格の勉強",
+        "message": "子どもの発見や成長に寄り添い、学ぶ楽しさを届ける仕事。",
+    },
+    {
+        "key": "patissier",
+        "name": "パティシエ",
+        "emoji": "🧁",
         "salary": 360,
-        "growth": 0.035,
-        "message": "技術を磨くほど、できる仕事が増えていく職業です。",
+        "probability": 50,
+        "skills": "料理・衛生・くり返し練習",
+        "message": "お菓子のおいしさと見た目で、特別な時間を作る仕事。",
     },
     {
-        "name": "デザイナー",
+        "key": "illustrator",
+        "name": "イラストレーター",
         "emoji": "🎨",
-        "salary": 310,
-        "growth": 0.04,
-        "message": "アイデアと経験が収入につながる職業です。",
+        "salary": 420,
+        "probability": 30,
+        "skills": "観察・描く練習・作品集づくり",
+        "message": "絵で物語や情報を伝え、本・広告・ゲームなどを彩る仕事。",
     },
     {
-        "name": "セールスプランナー",
-        "emoji": "🤝",
-        "salary": 340,
-        "growth": 0.04,
-        "message": "人の困りごとを見つけ、解決する力が大切な職業です。",
+        "key": "video_creator",
+        "name": "動画クリエイター",
+        "emoji": "🎬",
+        "salary": 450,
+        "probability": 20,
+        "skills": "企画・撮影・編集・発信のルール",
+        "message": "映像と音で、人に分かりやすく楽しい物語を届ける仕事。",
     },
     {
-        "name": "ケアワーカー",
-        "emoji": "🌱",
-        "salary": 300,
-        "growth": 0.03,
-        "message": "人を支えることが社会の価値になる職業です。",
-    },
-    {
-        "name": "フードクリエイター",
-        "emoji": "🍳",
-        "salary": 320,
-        "growth": 0.035,
-        "message": "工夫と信用がリピーターを生む職業です。",
+        "key": "athlete",
+        "name": "プロスポーツ選手",
+        "emoji": "⚽",
+        "salary": 500,
+        "probability": 3,
+        "skills": "体づくり・技術・休む力・継続",
+        "message": "高い技術で競い、観る人に勇気や感動を届ける仕事。",
     },
 ]
 
 
-LIFE_STAGES = [
+EVENTS = [
     {
-        "age": 18,
-        "next_age": 25,
-        "label": "社会人スタート",
-        "living_cost": 210,
-        "event": {
-            "title": "初任給で何を買う？",
-            "description": "友達が最新スマホを買いました。あなたも10万円の新機種が気になります。",
-            "options": [
-                {
-                    "key": "new_phone",
-                    "label": "最新機種を買う（10万円）",
-                    "effect": {"cost": 10, "happiness": 8},
-                    "lesson": "今の満足も大切。ただし、使ったお金は将来増える可能性を失います。",
-                },
-                {
-                    "key": "used_phone",
-                    "label": "中古機種を買う（4万円）",
-                    "effect": {"cost": 4, "happiness": 5, "knowledge": 2},
-                    "lesson": "満足と支出のバランスを取るのも立派な選択です。",
-                },
-                {
-                    "key": "keep_phone",
-                    "label": "今の機種を使い続ける",
-                    "effect": {"knowledge": 3},
-                    "lesson": "買わない選択は、未来に使えるお金を残します。",
-                },
-            ],
-        },
+        "min_age": 0,
+        "max_age": 12,
+        "title": "おこづかいをどうする？",
+        "description": "お祝いで2万円をもらったよ。いまの楽しみと未来、どう分ける？",
+        "options": [
+            {"key": "toy", "label": "ほしい物に2万円使う", "cost": 2, "happiness": 7, "knowledge": 1, "lesson": "楽しく使うのもお金の役目。使う前に残りを考えよう。"},
+            {"key": "split", "label": "半分使い、半分残す", "cost": 1, "happiness": 5, "knowledge": 4, "lesson": "今と未来の両方に分ける方法があるね。"},
+            {"key": "save", "label": "全部、未来のために残す", "cost": 0, "happiness": 2, "knowledge": 3, "lesson": "時間を味方にできるけれど、今の楽しみとのバランスも大切。"},
+        ],
     },
     {
-        "age": 25,
-        "next_age": 35,
-        "label": "暮らしをつくる",
-        "living_cost": 245,
-        "event": {
-            "title": "住まいをどう選ぶ？",
-            "description": "便利で広い部屋と、少し遠いコンパクトな部屋。家賃は毎月かかります。",
-            "options": [
-                {
-                    "key": "premium_home",
-                    "label": "駅近の広い部屋に住む",
-                    "effect": {"cost": 35, "happiness": 10, "budget_modifier": -0.10},
-                    "lesson": "高い家賃は満足を生みますが、毎年の自由資金を減らします。",
-                },
-                {
-                    "key": "standard_home",
-                    "label": "価格と便利さのバランスを取る",
-                    "effect": {"cost": 15, "happiness": 6},
-                    "lesson": "固定費は長く続くため、一度の買い物以上に影響があります。",
-                },
-                {
-                    "key": "compact_home",
-                    "label": "家賃を抑えた部屋に住む",
-                    "effect": {"cost": 8, "happiness": 2, "budget_modifier": 0.06, "knowledge": 2},
-                    "lesson": "固定費を抑えると、毎年選べるお金が増えます。",
-                },
-            ],
-        },
+        "min_age": 13,
+        "max_age": 17,
+        "title": "新しいスマホがほしい！",
+        "description": "友だちの最新機種はかっこいい。10万円を全部使う？工夫する？",
+        "options": [
+            {"key": "phone_new", "label": "最新機種を買う（10万円）", "cost": 10, "happiness": 8, "knowledge": 1, "lesson": "満足は得られるけれど、未来に回るお金は減るよ。"},
+            {"key": "phone_used", "label": "中古を買う（4万円）", "cost": 4, "happiness": 5, "knowledge": 4, "lesson": "目的を満たしながら支出を抑えるのも立派な工夫。"},
+            {"key": "phone_keep", "label": "今の機種を使い続ける", "cost": 0, "happiness": 1, "knowledge": 4, "lesson": "買わないという選択は、未来の選択肢を残すよ。"},
+        ],
     },
     {
-        "age": 35,
-        "next_age": 45,
-        "label": "守りを考える",
-        "living_cost": 275,
-        "event": {
-            "title": "保険をどう考える？",
-            "description": "もしもの出費に備えたい一方、保険料を払いすぎると投資や貯金に回せません。",
-            "options": [
-                {
-                    "key": "simple_insurance",
-                    "label": "必要な分だけ入る（10万円）",
-                    "effect": {"cost": 10, "insurance": 1, "knowledge": 4},
-                    "lesson": "起きたら困る大きな損失に、必要な範囲で備える考え方です。",
-                },
-                {
-                    "key": "heavy_insurance",
-                    "label": "心配なのでたくさん入る（30万円）",
-                    "effect": {"cost": 30, "insurance": 2, "happiness": 2},
-                    "lesson": "安心は増えますが、保険料にも機会費用があります。",
-                },
-                {
-                    "key": "no_insurance",
-                    "label": "保険に入らず、現金で備える",
-                    "effect": {"insurance": 0, "knowledge": 1},
-                    "lesson": "十分な緊急予備費があるなら選択肢になりますが、大きな出費には注意が必要です。",
-                },
-            ],
-        },
+        "min_age": 18,
+        "max_age": 29,
+        "title": "社会人の暮らしを選ぼう",
+        "description": "便利で広い部屋と、少し遠いコンパクトな部屋。固定費は毎年続くよ。",
+        "options": [
+            {"key": "home_big", "label": "駅近の広い部屋（追加30万円）", "cost": 30, "happiness": 9, "knowledge": 1, "lesson": "毎月の固定費は小さく見えても、長い期間では大きくなるよ。"},
+            {"key": "home_balance", "label": "便利さと家賃のバランス（15万円）", "cost": 15, "happiness": 6, "knowledge": 3, "lesson": "値段だけでなく、時間や便利さも比べて決めよう。"},
+            {"key": "home_small", "label": "家賃を抑える（5万円）", "cost": 5, "happiness": 3, "knowledge": 5, "lesson": "固定費を抑えると、未来に回すお金を作りやすい。"},
+        ],
     },
     {
-        "age": 45,
-        "next_age": 55,
-        "label": "予想外に備える",
-        "living_cost": 285,
-        "event": {
-            "title": "突然の大きな出費！",
-            "description": "病気と家の修理が重なり、80万円が必要になりました。保険があれば負担が軽くなります。",
-            "intro_effect": {"cost": 80, "insurable": True},
-            "options": [
-                {
-                    "key": "rebuild_cash",
-                    "label": "生活を少し見直し、予備費を戻す",
-                    "effect": {"happiness": -3, "budget_modifier": 0.05, "knowledge": 4},
-                    "lesson": "現金の予備費は、投資を安値で売らずに済むクッションになります。",
-                },
-                {
-                    "key": "learn_side_job",
-                    "label": "10万円で副業スキルを学ぶ",
-                    "effect": {"cost": 10, "skill": 12, "knowledge": 3},
-                    "lesson": "自分の力への投資は、将来の収入を増やす可能性があります。",
-                },
-                {
-                    "key": "refresh_trip",
-                    "label": "20万円で気分転換の旅行をする",
-                    "effect": {"cost": 20, "happiness": 10},
-                    "lesson": "お金は人生を楽しむためにも使います。無理のない範囲かを確認しましょう。",
-                },
-            ],
-        },
+        "min_age": 30,
+        "max_age": 44,
+        "title": "もしもの備えを考えよう",
+        "description": "突然40万円が必要に。予備の現金が少ないと、投資を急いで売るか借りることになるよ。",
+        "options": [
+            {"key": "emergency", "label": "予備費から40万円払う", "cost": 40, "happiness": -2, "knowledge": 5, "lesson": "現金は、値下がり中の投資を売らずに済むクッション。"},
+            {"key": "insurance", "label": "必要な保険を使い15万円払う", "cost": 15, "happiness": 0, "knowledge": 4, "lesson": "起きると困る大きな損失には、必要な範囲で備える方法がある。"},
+            {"key": "borrow", "label": "今は5万円払い、残りは借りる", "cost": 5, "debt": 35, "happiness": 1, "knowledge": 2, "lesson": "借金には利息がつく。返せる計画と総額の確認が必要だよ。"},
+        ],
     },
     {
-        "age": 55,
-        "next_age": 65,
-        "label": "未来を仕上げる",
-        "living_cost": 260,
-        "event": {
-            "title": "『必ず2倍』の投資話",
-            "description": "SNSで知り合った人が『絶対に損しない。今だけ』と勧めてきました。",
-            "options": [
-                {
-                    "key": "accept_scam",
-                    "label": "チャンスだと思い40万円を渡す",
-                    "effect": {"cost": 40, "happiness": -8},
-                    "lesson": "『必ずもうかる』『今だけ』は危険信号。高い利益に保証はありません。",
-                },
-                {
-                    "key": "ask_expert",
-                    "label": "家族や専門家に相談する",
-                    "effect": {"cost": 2, "knowledge": 8, "happiness": 2},
-                    "lesson": "一人で即決せず、信頼できる人と情報源を確認することが防御になります。",
-                },
-                {
-                    "key": "decline_scam",
-                    "label": "断ってブロックする",
-                    "effect": {"knowledge": 6},
-                    "lesson": "うますぎる話から離れる判断も、お金を守る立派な行動です。",
-                },
-            ],
-        },
+        "min_age": 45,
+        "max_age": 54,
+        "title": "学び直しか、今のままか",
+        "description": "仕事の道具が変化した。新しい技術を学ぶと、できることが増えそう。",
+        "options": [
+            {"key": "reskill", "label": "20万円で学び直す", "cost": 20, "happiness": 3, "knowledge": 8, "lesson": "自分への投資は、未来の仕事や選択肢を増やすことがある。"},
+            {"key": "free_learn", "label": "無料教材で少しずつ学ぶ", "cost": 0, "happiness": 1, "knowledge": 5, "lesson": "お金をかけなくても、時間と工夫で学べる。"},
+            {"key": "no_learn", "label": "いまの方法を続ける", "cost": 0, "happiness": 2, "knowledge": 1, "lesson": "変えない安心もあるけれど、環境の変化は確認しよう。"},
+        ],
+    },
+    {
+        "min_age": 55,
+        "max_age": 65,
+        "title": "『必ず2倍』の投資話",
+        "description": "SNSの人が『絶対に損しない。今日だけ』とすすめてきたよ。",
+        "options": [
+            {"key": "scam", "label": "40万円を渡す", "cost": 40, "happiness": -8, "knowledge": 0, "lesson": "『必ず』『今だけ』は危険信号。利益の保証はできないよ。"},
+            {"key": "ask", "label": "家族や公的窓口に相談する", "cost": 0, "happiness": 3, "knowledge": 8, "lesson": "一人で即決せず、信頼できる情報を確かめるのが防御になる。"},
+            {"key": "block", "label": "断ってブロックする", "cost": 0, "happiness": 2, "knowledge": 6, "lesson": "うますぎる話から離れるのも、お金を守る大切な行動。"},
+        ],
     },
 ]
 
 
 QUIZZES = [
     {
-        "question": "図書館の本は、社会全体で見ても完全に0円？",
-        "options": ["はい。誰もお金を払っていない", "いいえ。税金などで運営されている", "本によって違う"],
-        "correct": 1,
-        "explanation": "利用時は無料でも、建物・本・働く人の費用は税金などから支払われます。",
-    },
-    {
-        "question": "年7.2%で複利運用できたと仮定すると、72の法則では約何年で2倍？",
-        "options": ["約5年", "約10年", "約20年"],
-        "correct": 1,
-        "explanation": "72 ÷ 7.2 = 10。実際の運用成績は毎年変わり、2倍を保証する式ではありません。",
-    },
-    {
-        "question": "一般に、大きなリターンを狙う商品ほどどうなる？",
-        "options": ["損する可能性も大きくなる", "必ず早く増える", "値段が動かなくなる"],
+        "question": "100円を毎月ためるのと、気が向いた月だけためるのでは、続けやすいのは？",
+        "options": ["毎月、自動でためる", "気が向いた月だけ", "どちらも必ず同じ"],
         "correct": 0,
-        "explanation": "高いリターンの可能性と、大きく損する可能性は表裏一体です。",
+        "explanation": "先に決めて自動で積み立てると、使う前に未来分を残しやすいよ。",
     },
     {
-        "question": "物価が毎年2%ずつ上がると、同じ100万円で買える量は長期的にどうなる？",
-        "options": ["増える", "変わらない", "減る"],
-        "correct": 2,
-        "explanation": "現金の数字が同じでも、物価が上がると買えるものは少なくなります。",
+        "question": "1つの会社だけでなく、たくさんの会社に分けて投資する考え方は？",
+        "options": ["集中", "分散", "借金"],
+        "correct": 1,
+        "explanation": "分散は、1つがうまくいかないときの影響を小さくする考え方。",
     },
     {
-        "question": "『元本保証で、半年後に必ず2倍』と言われたら最初にすることは？",
-        "options": ["すぐ申し込む", "借金して増額する", "断り、信頼できる人や公的情報で確認する"],
+        "question": "値段が下がった資産を売り、上がった資産を買うのがリバランス？",
+        "options": ["はい", "いいえ。目標の割合に戻すこと", "必ず全部売ること"],
+        "correct": 1,
+        "explanation": "リバランスは、増減してずれた配分を最初に決めた割合へ戻すこと。",
+    },
+    {
+        "question": "一般に、大きく増える可能性がある商品はどうなる？",
+        "options": ["大きく減る可能性もある", "必ず増える", "値段が動かない"],
+        "correct": 0,
+        "explanation": "高いリターンの可能性と、大きく損する可能性はセットだよ。",
+    },
+    {
+        "question": "『元本保証で必ず2倍』と言われたら？",
+        "options": ["すぐ買う", "借りて増やす", "断り、信頼できる人や公的情報で確認"],
         "correct": 2,
-        "explanation": "『必ず』『今だけ』と急がせる話は詐欺を疑い、まず距離を取りましょう。",
+        "explanation": "『必ず』『今だけ』と急がせる話は、まず距離を取って確認しよう。",
     },
 ]
 
 
-STRATEGIES = {
-    "steady": {
-        "name": "🛡️ じっくり安心型",
-        "description": "使う20%・現金45%・インデックス30%・個別株5%",
-        "allocation": {"enjoy": 20, "cash": 45, "index": 30, "stock": 5, "challenge": 0, "skill": 0},
-    },
-    "balanced": {
-        "name": "⚖️ バランス型",
-        "description": "使う20%・現金20%・インデックス45%・個別株10%・挑戦資産5%",
-        "allocation": {"enjoy": 20, "cash": 20, "index": 45, "stock": 10, "challenge": 5, "skill": 0},
-    },
-    "self_growth": {
-        "name": "🚀 自分も育てる型",
-        "description": "使う15%・現金15%・インデックス35%・個別株5%・学び30%",
-        "allocation": {"enjoy": 15, "cash": 15, "index": 35, "stock": 5, "challenge": 0, "skill": 30},
-    },
-    "thrill": {
-        "name": "🎢 ハイリスク挑戦型",
-        "description": "使う25%・現金5%・インデックス20%・個別株20%・暗号資産/FX30%",
-        "allocation": {"enjoy": 25, "cash": 5, "index": 20, "stock": 20, "challenge": 30, "skill": 0},
-    },
-}
+def event_for_age(age: int) -> dict:
+    """Return the age-appropriate event."""
+    return next(item for item in EVENTS if item["min_age"] <= age <= item["max_age"])
 
+
+def career_by_key(key: str) -> dict:
+    return next(item for item in CAREERS if item["key"] == key)
