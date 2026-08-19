@@ -381,6 +381,11 @@ def ending_screen(state: dict) -> None:
         st.rerun()
 
 
+# A deployment can briefly reconnect an open browser with the previous version's
+# session dictionary. Reset only that incompatible in-memory state.
+if "game" in st.session_state and "start_age" not in st.session_state.game:
+    del st.session_state.game
+
 render_sidebar()
 if "game" not in st.session_state:
     start_screen()
