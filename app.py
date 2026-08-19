@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
-from content import LIFE_STAGES, STRATEGIES
+from content import CAREERS, PRODUCTS
 from game_engine import (
+    ASSET_KEYS,
+    MINOR_NISA_TOTAL_LIMIT,
     annual_salary,
-    available_budget,
+    career_probability,
+    choose_career,
     create_new_game,
+    current_event,
     current_quiz,
-    current_stage,
     ending_profile,
-    play_turn,
+    next_checkpoint_age,
+    play_period,
     real_net_worth,
     total_assets,
 )
@@ -19,7 +24,7 @@ from game_engine import (
 
 st.set_page_config(
     page_title="未来マネークエスト",
-    page_icon="🌳",
+    page_icon="🐿️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -27,32 +32,33 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-    .stApp {background: linear-gradient(180deg, #f4fbf6 0%, #fffaf0 100%);}
-    .block-container {max-width: 1120px; padding-top: 1.4rem; padding-bottom: 3rem;}
-    .hero {
-        padding: 1.5rem 1.7rem; border-radius: 24px;
-        color: #173f35; background: linear-gradient(135deg, #d9f7e8, #fff0bd);
-        border: 1px solid rgba(21, 94, 73, .13); margin-bottom: 1.2rem;
-    }
-    .hero h1 {margin: 0 0 .35rem 0; font-size: 2.25rem;}
-    .hero p {margin: .2rem 0; font-size: 1.05rem;}
-    .card {
-        padding: 1.15rem 1.25rem; border-radius: 18px; background: rgba(255,255,255,.92);
-        border: 1px solid #dfeae4; box-shadow: 0 5px 18px rgba(44, 84, 66, .06);
-        margin: .55rem 0 1rem 0;
-    }
-    .event-card {border-left: 7px solid #ffb547;}
-    .learn-card {border-left: 7px solid #4ea98a;}
-    .result-card {border-left: 7px solid #6c83e6;}
-    .tiny {font-size: .82rem; color: #5f6f67;}
-    .big-number {font-size: 1.65rem; font-weight: 800; color: #175d48;}
-    div[data-testid="stMetric"] {
-        background: rgba(255,255,255,.88); border: 1px solid #e0ebe5;
-        padding: .75rem; border-radius: 15px;
-    }
-    div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
-        border-radius: 999px; font-weight: 700; min-height: 3rem;
-    }
+    :root {--ink:#193b35; --green:#44a77a; --cream:#fff9e9;}
+    .stApp {background: radial-gradient(circle at 8% 3%, #ddf8eb 0, transparent 28%), linear-gradient(180deg,#fffdf5,#f4fbff);}
+    .block-container {max-width:1180px; padding-top:1.25rem; padding-bottom:4rem;}
+    .hero {position:relative; overflow:hidden; padding:1.45rem 1.7rem; border-radius:28px; color:var(--ink);
+      background:linear-gradient(125deg,#c9f3df,#fff1b9 72%,#ffd8dd); border:2px solid rgba(34,123,91,.12);
+      box-shadow:0 10px 30px rgba(54,101,82,.10); margin-bottom:1rem; min-height:145px;}
+    .hero h1 {margin:0 0 .35rem; font-size:clamp(1.8rem,4vw,2.7rem); max-width:82%;}
+    .hero p {margin:.25rem 0; font-size:1.02rem; max-width:78%;}
+    .mascot {position:absolute; right:3%; bottom:-6px; font-size:5.8rem; filter:drop-shadow(0 7px 3px rgba(44,75,60,.16));
+      animation:floaty 2.8s ease-in-out infinite; transform-origin:bottom center;}
+    .coin {display:inline-block; animation:spin 3s linear infinite;}
+    @keyframes floaty {0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-10px) rotate(3deg)}}
+    @keyframes spin {0%,100%{transform:rotateY(0)}50%{transform:rotateY(180deg)}}
+    .card {padding:1rem 1.15rem; border-radius:19px; background:rgba(255,255,255,.94); border:1px solid #dcebe4;
+      box-shadow:0 5px 18px rgba(44,84,66,.06); margin:.45rem 0 .9rem;}
+    .speech {border-left:7px solid #ffb54b;}
+    .learn {border-left:7px solid #4fae88;}
+    .career {border-left:7px solid #7a8ee8;}
+    .tiny {font-size:.84rem; color:#60736c;}
+    .pill {display:inline-block; padding:.25rem .62rem; border-radius:999px; background:#fff; margin:.15rem .18rem .15rem 0;
+      border:1px solid #d7e7de; font-size:.85rem;}
+    .product-card {min-height:126px; padding:.9rem; border-radius:18px; background:#fff; border:2px solid #e1eee8; margin-bottom:.3rem;}
+    .product-card .emoji {font-size:2rem;}
+    div[data-testid="stMetric"] {background:rgba(255,255,255,.9); border:1px solid #dceae4; padding:.72rem; border-radius:16px;}
+    div.stButton > button, div[data-testid="stFormSubmitButton"] > button {border-radius:999px; font-weight:800; min-height:3rem;}
+    div[data-testid="stPopover"] button {border-radius:999px;}
+    @media (max-width:720px) {.mascot{font-size:4rem}.hero p{max-width:72%}.hero{padding:1.1rem}.hero h1{max-width:78%}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -60,257 +66,329 @@ st.markdown(
 
 
 def yen(value: float) -> str:
-    return f"{value:,.0f}万円"
+    return f"{value:,.1f}万円"
+
+
+def hero(title: str, message: str, sub: str = "") -> None:
+    st.markdown(
+        f"""
+<div class="hero">
+  <h1>{title}</h1><p>{message}</p><p class="tiny">{sub}</p>
+  <div class="mascot">🐿️<span class="coin">🪙</span></div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar() -> None:
     with st.sidebar:
-        st.markdown("## 🌳 学べること")
+        st.markdown("## 🗺️ 冒険ガイド")
         st.markdown(
             """
-- お金の「使う・守る・育てる」
-- 複利と72の法則
-- 預金・分散投資・高リスク商品の違い
-- 家賃、保険、失業など人生の固定費と予想外
-- 「必ずもうかる」話から身を守る方法
+- 🪙 **守る**：すぐ使える現金
+- 🌱 **育てる**：時間と分散を味方に
+- 🎓 **学ぶ**：夢に近づく準備
+- 🎈 **楽しむ**：今の幸せも大切
 """
         )
-        st.info("資産額だけが勝ちではありません。幸福・知識・挑戦のバランスも結末に反映されます。")
-        st.caption("金額と運用結果は学習用に単純化した架空のシミュレーションです。実際の投資成果を予測・保証するものではありません。")
+        st.info("資産額だけが勝ちではありません。『なぜこの配分？』を親子で話すことがゴールです。")
+        if "game" in st.session_state:
+            if st.button("🔄 最初から遊ぶ", use_container_width=True):
+                del st.session_state.game
+                st.rerun()
         st.markdown("---")
-        st.markdown("**参考にした動画**")
-        st.link_button(
-            "PIVOTの動画を開く",
-            "https://www.youtube.com/watch?v=U35WMjyVdmI",
-            use_container_width=True,
+        st.markdown("#### 📚 制度・データの出典")
+        st.link_button("金融庁：こどもNISA", "https://www.fsa.go.jp/access/r7/270.html", use_container_width=True)
+        st.link_button("日本FP協会：小学生の夢", "https://www.jafp.or.jp/personal_finance/yume/syokugyo/", use_container_width=True)
+        st.link_button("厚労省 job tag", "https://shigoto.mhlw.go.jp/", use_container_width=True)
+        st.link_button("参考にしたPIVOT動画", "https://www.youtube.com/watch?v=U35WMjyVdmI", use_container_width=True)
+        st.caption("金額、相場、職業到達確率は学習用に単純化したゲーム設定です。投資成果・就職・年収を予測または保証しません。")
+
+
+def render_products() -> None:
+    st.markdown("#### 🧰 まず、5つの道具を知ろう")
+    st.caption("カードの『くわしく見る』を押すと、子ども向け説明とNISAでの扱いが開きます。")
+    cols = st.columns(5)
+    for col, (key, product) in zip(cols, PRODUCTS.items()):
+        with col:
+            st.markdown(
+                f"""<div class="product-card" style="border-top:7px solid {product['color']}">
+                <div class="emoji">{product['emoji']}</div><b>{product['name']}</b><br>
+                <span class="tiny">ゆれ：{product['risk']}</span></div>""",
+                unsafe_allow_html=True,
+            )
+            with st.popover("🔎 くわしく見る", use_container_width=True):
+                st.markdown(f"### {product['emoji']} {product['name']}")
+                st.success(product["story"])
+                st.write(product["detail"])
+                st.markdown(f"**こどもNISA：** {product['nisa']}")
+
+
+def render_asset_chart(state: dict) -> None:
+    st.markdown("### 📊 年齢ごとの資産の育ち方")
+    frame = pd.DataFrame(state["history"])
+    long = frame.melt(id_vars=["age"], value_vars=list(ASSET_KEYS), var_name="asset", value_name="value")
+    labels = {key: f"{item['emoji']} {item['name']}" for key, item in PRODUCTS.items()}
+    long["商品"] = long["asset"].map(labels)
+    domain = list(labels.values())
+    colors = [PRODUCTS[key]["color"] for key in ASSET_KEYS]
+    chart = (
+        alt.Chart(long)
+        .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+        .encode(
+            x=alt.X("age:O", title="年齢", axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("sum(value):Q", title="資産（万円）", stack="zero"),
+            color=alt.Color("商品:N", scale=alt.Scale(domain=domain, range=colors), legend=alt.Legend(orient="bottom")),
+            tooltip=[alt.Tooltip("age:O", title="年齢"), alt.Tooltip("商品:N"), alt.Tooltip("sum(value):Q", title="金額（万円）", format=",.1f")],
         )
+        .properties(height=360)
+    )
+    st.altair_chart(chart, use_container_width=True)
+    st.caption("棒の色は資産の種類。借金は資産ではないため積み上げず、画面上部の『借金』に別表示します。")
 
 
 def render_last_result(result: dict | None) -> None:
     if not result:
         return
-    with st.expander(f"📬 前のターンの結果：{result['stage']}", expanded=True):
-        quiz_mark = "正解！" if result["quiz_correct"] else "今回は不正解"
+    with st.expander(f"🔍 なぜ増えた？なぜ減った？｜{result['age_range']}", expanded=True):
+        quiz_mark = "🎉 正解" if result["quiz_correct"] else "🌱 次は正解できる"
         st.markdown(
-            f"""
-<div class="card result-card">
-<b>選択からの学び</b><br>{result['choice_lesson']}<br><br>
-<b>クイズ：</b>{quiz_mark} — {result['quiz_explanation']}
-</div>
-""",
+            f"""<div class="card learn"><b>{result['event_title']}</b>：{result['event_choice']}<br>
+            {result['lesson']}<br><br><b>クイズ：</b>{quiz_mark} — {result['quiz_explanation']}</div>""",
             unsafe_allow_html=True,
         )
-        market = result["market"]
-        cols = st.columns(3)
-        cols[0].metric("インデックス市場", f"年 {market['index_rate'] * 100:+.0f}%")
-        cols[1].metric("個別株市場", f"年 {market['stock_rate'] * 100:+.0f}%")
-        cols[2].metric("暗号資産・FX", f"{market['challenge_multiplier']:.1f}倍")
-        if result["event_cost"]["original_cost"]:
-            original = result["event_cost"]["original_cost"]
-            actual = result["event_cost"]["actual_cost"]
-            st.caption(f"突然の出費：本来 {yen(original)} → 自己負担 {yen(actual)}")
+        if result["learning_spend"]:
+            st.caption(f"夢の準備に使ったお金：{yen(result['learning_spend'])}")
+        if result["nisa_added"]:
+            st.caption(f"この期間に、こどもNISA対象として数えた積立：{yen(result['nisa_added'])}")
+        breakdown = pd.DataFrame(result["breakdown"])
+        st.dataframe(
+            breakdown,
+            column_config={
+                "開始": st.column_config.NumberColumn(format="%.1f万円"),
+                "積立": st.column_config.NumberColumn(format="%+.1f万円"),
+                "配分調整": st.column_config.NumberColumn(format="%+.1f万円"),
+                "値動き": st.column_config.NumberColumn(format="%+.1f万円"),
+                "終了": st.column_config.NumberColumn(format="%.1f万円"),
+            },
+            hide_index=True,
+            use_container_width=True,
+        )
 
 
 def start_screen() -> None:
-    st.markdown(
-        """
-<div class="hero">
-  <h1>🌳 未来マネークエスト</h1>
-  <p>18歳から65歳まで、5つの選択で未来を育てる金融人生ゲーム</p>
-  <p class="tiny">サイコロで職業が決まり、家賃・保険・予想外の出費・投資の波を体験します。</p>
-</div>
-""",
-        unsafe_allow_html=True,
+    hero(
+        "🐿️ 未来マネークエスト",
+        "ほんとうの年齢から始めて、お金と夢を育てる親子ゲーム",
+        "配分も、リバランスも、社会人になる年齢も、自分で決められます。",
     )
-    left, right = st.columns([1.25, 1])
+    left, right = st.columns([1.1, 1])
     with left:
-        st.markdown("### このゲームのゴール")
+        st.markdown("### 🎯 このゲームのゴール")
+        st.write("お金持ちになる競争ではありません。現金、分散投資、学び、今の楽しみを『なぜそうするか』考えることがゴールです。")
         st.markdown(
-            """
-「一番お金持ち」になることではありません。目の前の楽しみ、困ったときの現金、
-未来を育てる投資、自分の力を高める学びを、自分で考えて組み合わせることがゴールです。
-"""
-        )
-        st.markdown(
-            """
-<div class="card learn-card">
-💡 <b>親子で遊ぶコツ</b><br>
-選ぶ前に「どうしてそう思った？」と一言だけ聞いてください。正解を先に教えるより、
-子どもの理由を言葉にしてもらう方が学びが残ります。
-</div>
-""",
+            """<div class="card speech">💬 <b>親子で遊ぶ合言葉</b><br>
+            選ぶ前に「どうしてそう思った？」。正解を先に言わず、子どもの理由を聞いてみよう。</div>""",
             unsafe_allow_html=True,
         )
+        st.info("2027年1月開始予定の『こどもNISA』は0～17歳が対象。年60万円、非課税保有限度額600万円としてゲームに反映しています。")
     with right:
         with st.form("start_form"):
-            name = st.text_input("プレイヤー名", value="悠然", max_chars=12)
-            difficulty = st.radio("学習モード", ["小学校高学年", "中学生"], horizontal=True)
-            started = st.form_submit_button("🎲 職業を決めてスタート", use_container_width=True)
+            st.markdown("### 🌱 冒険の設定")
+            name = st.text_input("子どもの名前", value="悠然", max_chars=12)
+            start_age = st.slider("いま何歳？", 0, 17, 11)
+            social_age = st.slider("何歳から社会人になる？", 18, 30, 22)
+            monthly = st.slider("毎月、未来に回す金額", 0, 50_000, 10_000, 5_000, format="%d円")
+            difficulty = st.radio("ことばの難しさ", ["小学校高学年", "中学生"], horizontal=True)
+            started = st.form_submit_button("🚀 この設定でスタート", use_container_width=True)
         if started:
-            st.session_state.game = create_new_game(name, difficulty)
+            st.session_state.game = create_new_game(name, start_age, social_age, monthly, difficulty)
             st.rerun()
 
 
+def career_screen(state: dict) -> None:
+    hero(
+        f"🎓 {state['age']}歳、夢の仕事を選ぼう",
+        "子どもに人気の仕事から、あこがれの進路を1つ選びます。",
+        "確率は実際の就職率ではなく、準備の効果を体験するためのゲーム内設定です。",
+    )
+    st.markdown(
+        f"""<div class="card career">ここまでの<b>夢の準備ポイント：{state['preparation']:.1f}</b>／金融知識：{state['knowledge']}<br>
+        学びに時間やお金を使った分だけ、すべての仕事のゲーム内確率が少し上がります。</div>""",
+        unsafe_allow_html=True,
+    )
+    rows = []
+    for career in CAREERS:
+        rows.append(
+            {
+                "夢の仕事": f"{career['emoji']} {career['name']}",
+                "ゲーム内の到達確率": career_probability(state, career["key"]),
+                "参考年収": career["salary"],
+                "準備のヒント": career["skills"],
+            }
+        )
+    st.dataframe(
+        pd.DataFrame(rows),
+        column_config={
+            "ゲーム内の到達確率": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%"),
+            "参考年収": st.column_config.NumberColumn(format="%d万円"),
+        },
+        hide_index=True,
+        use_container_width=True,
+    )
+    label_to_key = {f"{item['emoji']} {item['name']}": item["key"] for item in CAREERS}
+    with st.form("career_form"):
+        selected_label = st.radio("いちばん挑戦したい仕事", list(label_to_key), horizontal=False)
+        selected = next(item for item in CAREERS if item["key"] == label_to_key[selected_label])
+        st.info(f"{selected['message']}\n\n準備：{selected['skills']}")
+        submit = st.form_submit_button("🌟 この夢に挑戦する", use_container_width=True)
+    if submit:
+        st.session_state.game = choose_career(state, selected["key"])
+        st.rerun()
+
+
 def game_screen(state: dict) -> None:
-    stage = current_stage(state)
-    quiz = current_quiz(state)
-    budget = available_budget(state)
-    profession = state["profession"]
-
-    st.markdown(
-        f"""
-<div class="hero">
-  <h1>{profession['emoji']} {state['player_name']}の未来マネークエスト</h1>
-  <p>{profession['name']} — {profession['message']}</p>
-</div>
-""",
-        unsafe_allow_html=True,
+    profession = state.get("profession")
+    role = f"{profession['emoji']} {profession['name']}" if profession else "🎒 夢を準備中"
+    hero(
+        f"{state['player_name']}の未来マネークエスト",
+        role,
+        f"{state['age']}歳から{next_checkpoint_age(state)}歳までの作戦を決めよう。",
     )
+    progress = (state["age"] - state["start_age"]) / max(1, 65 - state["start_age"])
+    st.progress(progress, text=f"人生マップ：{state['age']}歳 → 65歳")
+    metrics = st.columns(6)
+    metrics[0].metric("いま", f"{state['age']}歳")
+    metrics[1].metric("純資産", yen(total_assets(state)))
+    metrics[2].metric("年収", yen(annual_salary(state)) if profession else "準備中")
+    metrics[3].metric("借金", yen(state["debt"]))
+    metrics[4].metric("幸福", f"{state['happiness']}/100")
+    metrics[5].metric("金融知識", f"{state['knowledge']}/100")
 
-    st.progress(state["turn"] / len(LIFE_STAGES), text=f"ステージ {state['turn'] + 1}/{len(LIFE_STAGES)}：{stage['label']}")
-    metrics = st.columns(5)
-    metrics[0].metric("いまの年齢", f"{state['age']}歳")
-    metrics[1].metric("推定年収", yen(annual_salary(state)))
-    metrics[2].metric("純資産", yen(total_assets(state)))
-    metrics[3].metric("幸福", f"{state['happiness']}/100")
-    metrics[4].metric("金融知識", f"{state['knowledge']}/100")
-
-    render_last_result(state.get("last_result"))
-
-    st.markdown(
-        f"""
-<div class="card event-card">
-  <span class="tiny">{stage['age']}歳 → {stage['next_age']}歳</span>
-  <h3>🎴 {stage['event']['title']}</h3>
-  <p>{stage['event']['description']}</p>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-    with st.form(f"turn_form_{state['turn']}"):
-        option_labels = {o["label"]: o["key"] for o in stage["event"]["options"]}
-        event_label = st.radio("あなたならどうする？ まず理由を声に出してから選ぼう", list(option_labels))
-
-        st.markdown("#### 🧠 1問クイズ")
-        st.write(quiz["question"])
-        quiz_label = st.radio(
-            "答えを選ぶ",
-            quiz["options"],
-            index=None,
-            key=f"quiz_{state['turn']}",
-            label_visibility="collapsed",
+    career_result = state.get("career_result")
+    if career_result:
+        icon = "🎉" if career_result["achieved"] else "🧭"
+        st.markdown(
+            f"""<div class="card career">{icon} <b>{career_result['dream']}への挑戦結果</b><br>
+            ゲーム内確率 {career_result['probability']}%／サイコロ {career_result['roll']} — {career_result['message']}</div>""",
+            unsafe_allow_html=True,
         )
 
-        st.markdown("#### 💰 この期間のお金を配分")
-        st.caption(f"生活費などを引いた後、選べるお金は約 {yen(budget)}。どの作戦にしますか？")
-        strategy_labels = {f"{v['name']}｜{v['description']}": k for k, v in STRATEGIES.items()}
-        strategy_label = st.radio("作戦", list(strategy_labels), index=1, label_visibility="collapsed")
+    if state["age"] < 18:
+        remaining = MINOR_NISA_TOTAL_LIMIT - state["minor_nisa_total"]
+        st.info(
+            f"👶 こどもNISA学習メーター：累計 {yen(state['minor_nisa_total'])}／600万円（残り {yen(remaining)}）。"
+            " 対象として数えるのは、条件を満たす債券・バランス投信とインデックス投信だけです。"
+        )
 
-        submitted = st.form_submit_button("この選択で未来へ進む ➜", use_container_width=True)
+    render_last_result(state.get("last_result"))
+    event = current_event(state)
+    quiz = current_quiz(state)
+    target_age = next_checkpoint_age(state)
+    st.markdown(
+        f"""<div class="card speech"><span class="tiny">🎴 {state['age']}歳→{target_age}歳の出来事</span>
+        <h3>{event['title']}</h3><p>{event['description']}</p></div>""",
+        unsafe_allow_html=True,
+    )
+    render_products()
+
+    with st.form(f"period_form_{state['turn']}"):
+        option_labels = {item["label"]: item["key"] for item in event["options"]}
+        event_label = st.radio("① あなたならどうする？", list(option_labels))
+        st.markdown("#### 🧠 ② 1問クイズ")
+        st.write(quiz["question"])
+        quiz_label = st.radio("答え", quiz["options"], index=None, label_visibility="collapsed")
+
+        if state["age"] < state["social_age"]:
+            learning_percent = st.slider(
+                "③ 毎月の積立予定のうち、夢の準備（本・習い事・体験）に使う割合",
+                0,
+                30,
+                10,
+                5,
+                format="%d%%",
+            )
+        else:
+            learning_percent = 0
+            st.caption("③ 社会人になったので、この期間は給料の5%も積立に加えます。")
+
+        st.markdown("#### 🧩 ④ 金融商品の目標配分を自分で決める")
+        st.caption("5つの合計を100%にしてください。0%の商品があってもOKです。")
+        allocation = {}
+        alloc_cols = st.columns(5)
+        for col, key in zip(alloc_cols, ASSET_KEYS):
+            with col:
+                allocation[key] = int(
+                    st.number_input(
+                        f"{PRODUCTS[key]['emoji']} {PRODUCTS[key]['name']}",
+                        min_value=0,
+                        max_value=100,
+                        value=int(state["target_allocation"][key]),
+                        step=5,
+                        key=f"allocation_{state['turn']}_{key}",
+                    )
+                )
+        st.markdown(f"**いまの合計：{sum(allocation.values())}%**")
+        rebalance = st.toggle(
+            "毎年リバランスする",
+            value=bool(state["rebalance"]),
+            help="増減でずれた資産の割合を、毎年この目標配分へ戻します。オフなら、新しい積立だけを目標配分で買います。",
+        )
+        submitted = st.form_submit_button(f"🚀 {target_age}歳まで進む", use_container_width=True)
 
     if submitted:
         if quiz_label is None:
             st.warning("クイズの答えを選んでください。")
-            return
-        new_state = play_turn(
-            state,
-            strategy_labels[strategy_label],
-            option_labels[event_label],
-            quiz["options"].index(quiz_label),
-        )
-        st.session_state.game = new_state
-        st.rerun()
+        elif sum(allocation.values()) != 100:
+            st.error(f"配分の合計が{sum(allocation.values())}%です。100%になるよう直してください。")
+        else:
+            st.session_state.game = play_period(
+                state,
+                allocation,
+                rebalance,
+                option_labels[event_label],
+                quiz["options"].index(quiz_label),
+                learning_percent,
+            )
+            st.rerun()
 
-    st.markdown("#### 現在の資産の中身")
-    asset_df = pd.DataFrame(
-        {
-            "資産": ["現金", "インデックス", "個別株", "暗号資産・FX", "借金"],
-            "万円": [state["cash"], state["index"], state["stock"], state["challenge"], state["debt"]],
-        }
-    ).set_index("資産")
-    st.bar_chart(asset_df, color="#4ea98a", horizontal=True)
+    render_asset_chart(state)
+    if state["reason_history"]:
+        with st.expander("📒 これまでの増減理由をすべて見る"):
+            st.dataframe(pd.DataFrame(state["reason_history"]), hide_index=True, use_container_width=True)
 
 
 def ending_screen(state: dict) -> None:
     profile = ending_profile(state)
-    net = total_assets(state)
-    real = real_net_worth(state)
-    baseline = state["baseline_cash"]
-
-    st.markdown(
-        f"""
-<div class="hero">
-  <h1>{profile['emoji']} 65歳のあなたは「{profile['title']}」</h1>
-  <p>{profile['message']}</p>
-</div>
-""",
-        unsafe_allow_html=True,
+    hero(
+        f"{profile['emoji']} 65歳のあなたは『{profile['title']}』",
+        profile["message"],
+        "1回のサイコロで本当の未来は決まりません。配分を変えて、もう一度比べてみよう。",
     )
+    metrics = st.columns(5)
+    metrics[0].metric("最終純資産", yen(total_assets(state)))
+    metrics[1].metric("今の物価での価値", yen(real_net_worth(state)))
+    metrics[2].metric("借金", yen(state["debt"]))
+    metrics[3].metric("幸福", f"{state['happiness']}/100")
+    metrics[4].metric("金融知識", f"{state['knowledge']}/100")
     render_last_result(state.get("last_result"))
-
-    cols = st.columns(4)
-    cols[0].metric("最終純資産", yen(net))
-    cols[1].metric("今の物価に直した価値", yen(real))
-    cols[2].metric("幸福", f"{state['happiness']}/100")
-    cols[3].metric("金融知識", f"{state['knowledge']}/100")
-
-    st.caption(
-        f"同じ投資可能額を低金利の現金だけで持った参考ケース：約 {yen(baseline)}。"
-        "結果が上でも下でも、1回のゲームで将来の運用成果は決まりません。"
-    )
-
-    history = pd.DataFrame(state["history"])
-    chart = history.set_index("age")[["total_assets", "real_assets"]].rename(
-        columns={"total_assets": "純資産（名目）", "real_assets": "今の物価に直した価値"}
-    )
-    st.markdown("### 資産の旅")
-    st.line_chart(chart, color=["#31866d", "#e2993f"])
-
-    left, right = st.columns([1.15, 1])
-    with left:
-        st.markdown("### 最後の資産配分")
-        final_assets = pd.DataFrame(
-            {
-                "資産": ["現金", "インデックス", "個別株", "暗号資産・FX", "借金"],
-                "万円": [state["cash"], state["index"], state["stock"], state["challenge"], state["debt"]],
-            }
-        ).set_index("資産")
-        st.bar_chart(final_assets, horizontal=True)
-    with right:
-        st.markdown("### 親子で振り返る3問")
-        st.markdown(
-            """
-1. 一番迷った選択はどれ？ なぜ迷った？
-2. もう一度なら、何を変えてみたい？
-3. お金が増えたら、どんな挑戦や人助けに使いたい？
-"""
-        )
-        st.markdown(
-            """
-<div class="card learn-card">
-<b>今回の核心</b><br>
-若いときのお金には「時間」があります。けれど、全部を投資すればよいわけではありません。
-今を楽しむお金、困ったときの現金、長期で育てるお金を分けることが大切です。
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-
-    col1, col2 = st.columns(2)
-    if col1.button("🔁 違う選択でもう一度", use_container_width=True):
-        st.session_state.game = create_new_game(state["player_name"], state["difficulty"])
-        st.rerun()
-    if col2.button("🏠 最初の画面へ", use_container_width=True):
-        st.session_state.pop("game", None)
+    render_asset_chart(state)
+    with st.expander("📒 全期間の増減理由", expanded=False):
+        st.dataframe(pd.DataFrame(state["reason_history"]), hide_index=True, use_container_width=True)
+    if st.button("🔄 違う年齢・配分で、もう一度遊ぶ", use_container_width=True):
+        del st.session_state.game
         st.rerun()
 
 
 render_sidebar()
 if "game" not in st.session_state:
     start_screen()
-elif st.session_state.game["ended"]:
-    ending_screen(st.session_state.game)
 else:
-    game_screen(st.session_state.game)
-
+    game = st.session_state.game
+    if game["ended"]:
+        ending_screen(game)
+    elif game.get("career_pending"):
+        career_screen(game)
+    else:
+        game_screen(game)
