@@ -28,6 +28,7 @@ BUDGET_KEYS = (
     "food",
     "social",
     "transport",
+    "other",
     "investment",
 )
 
@@ -75,6 +76,7 @@ def create_new_game(
         "social_age": social_age,
         "monthly_contribution_yen": monthly_contribution_yen,
         "initial_investment_yen": initial_investment_yen,
+        "initial_allocation_done": False,
         "household_budget": None,
         "age": start_age,
         "turn": 0,
@@ -136,12 +138,42 @@ def next_checkpoint_age(state: dict[str, Any]) -> int:
     return target
 
 
+def career_salary_at_age(
+    profession: dict[str, Any], age: int, social_age: int
+) -> float:
+    """Return an age/experience-aware annual salary model in 万円.
+
+    Public all-age salary figures are calibration points, not starting pay.
+    The first year uses ``starting_salary`` and gradually approaches the public
+    reference as experience grows.  A simple late-career adjustment keeps the
+    game transparent rather than pretending to forecast an individual salary.
+    """
+    years = max(0, int(age) - int(social_age))
+    factor = float(profession.get("salary_factor", 1.0))
+    entry = float(profession.get("starting_salary", profession["salary"]))
+    reference = float(profession["salary"])
+    years_to_average = max(1, int(profession.get("years_to_average", 18)))
+
+    progress = min(1.0, years / years_to_average)
+    salary = entry + (reference - entry) * (progress**0.9)
+    if years > years_to_average:
+        salary *= 1 + min(0.12, (years - years_to_average) * 0.012)
+
+    if profession.get("salary_model") == "athlete" and age > 32:
+        # Elite-sport income is unusually volatile.  The learning model assumes
+        # a gradual move into coaching or another sports-related role.
+        salary = min(salary, reference * max(0.80, 1 - (age - 32) * 0.025))
+
+    if age >= 60:
+        salary *= max(0.72, 1 - (age - 59) * 0.055)
+    return round(max(0.0, salary * factor), 1)
+
+
 def annual_salary(state: dict[str, Any]) -> float:
     profession = state.get("profession")
     if not profession or state["age"] < state["social_age"]:
         return 0.0
-    years = max(0, state["age"] - state["social_age"])
-    return float(profession["salary"]) * (1.018**years)
+    return career_salary_at_age(profession, int(state["age"]), int(state["social_age"]))
 
 
 def _salary_income_deduction(gross_salary: float) -> float:
@@ -239,6 +271,7 @@ def default_household_budget(monthly_take_home_yen: int) -> dict[str, int]:
         "food": 0.14,
         "social": 0.08,
         "transport": 0.05,
+        "other": 0.07,
         "investment": 0.10,
     }
     return {
@@ -311,7 +344,7 @@ def choose_career(state: dict[str, Any], career_key: str) -> dict[str, Any]:
     else:
         profession = copy.deepcopy(career)
         profession["name"] = f"{career['name']}につながる見習い"
-        profession["salary"] = round(career["salary"] * 0.75)
+        profession["salary_factor"] = 0.75
         message = "今回は直行ルートではなかったけれど、関連する仕事から夢に近づく道を選んだよ。"
 
     new_state["profession"] = profession
@@ -392,6 +425,26 @@ def play_period(
     if option is None:
         raise ValueError("Unknown event option.")
 
+    initial_allocation = {key: 0.0 for key in ASSET_KEYS}
+    initial_nisa_used = 0.0
+    if not bool(new_state.get("initial_allocation_done", new_state["turn"] > 0)):
+        initial_amount = min(
+            float(new_state.get("initial_investment_yen", 0)) / 10_000,
+            float(new_state["cash"]),
+        )
+        new_state["cash"] -= initial_amount
+        for key in ASSET_KEYS:
+            amount = initial_amount * allocation[key] / 100
+            new_state[key] += amount
+            initial_allocation[key] = amount
+        new_state["initial_allocation_done"] = True
+        if start_age < 18:
+            eligible_ratio = (allocation["bond"] + allocation["index"]) / 100
+            eligible_amount = initial_amount * eligible_ratio
+            remaining = max(0.0, MINOR_NISA_TOTAL_LIMIT - new_state["minor_nisa_total"])
+            initial_nisa_used = min(eligible_amount, MINOR_NISA_ANNUAL_LIMIT, remaining)
+            new_state["minor_nisa_total"] += initial_nisa_used
+
     before = _asset_snapshot(new_state)
     debt_at_start = float(new_state["debt"])
     contributions = {key: 0.0 for key in ASSET_KEYS}
@@ -410,7 +463,7 @@ def play_period(
     quiz_correct = quiz_answer_index == quiz["correct"]
     new_state["knowledge"] += 6 if quiz_correct else 2
     total_learning_spend = 0.0
-    nisa_added = 0.0
+    nisa_added = initial_nisa_used
     debt_interest = 0.0
     yearly_rates: list[dict[str, float]] = []
 
@@ -444,7 +497,10 @@ def play_period(
 
         if age < 18:
             eligible_ratio = (allocation["bond"] + allocation["index"]) / 100
-            eligible_amount = min(financial_contribution * eligible_ratio, MINOR_NISA_ANNUAL_LIMIT)
+            annual_limit = MINOR_NISA_ANNUAL_LIMIT
+            if age == start_age:
+                annual_limit = max(0.0, annual_limit - initial_nisa_used)
+            eligible_amount = min(financial_contribution * eligible_ratio, annual_limit)
             remaining = max(0.0, MINOR_NISA_TOTAL_LIMIT - new_state["minor_nisa_total"])
             used = min(eligible_amount, remaining)
             new_state["minor_nisa_total"] += used
@@ -530,6 +586,15 @@ def play_period(
         "quiz_explanation": quiz["explanation"],
         "learning_spend": round(total_learning_spend, 1),
         "monthly_investment_yen": monthly_investment,
+        "initial_allocation": [
+            {
+                "商品": f"{PRODUCTS[key]['emoji']} {PRODUCTS[key]['name']}",
+                "割合": allocation[key],
+                "金額": round(initial_allocation[key], 1),
+            }
+            for key in ASSET_KEYS
+            if initial_allocation[key] > 0
+        ],
         "nisa_added": round(nisa_added, 1),
         "breakdown": breakdown,
     }

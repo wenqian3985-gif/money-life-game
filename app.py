@@ -20,7 +20,6 @@ from game_engine import (
     default_household_budget,
     ending_profile,
     estimate_take_home,
-    max_monthly_investment_yen,
     next_checkpoint_age,
     play_period,
     real_net_worth,
@@ -36,6 +35,7 @@ BUDGET_LABELS = {
     "food": "🍚 食費",
     "social": "🎈 交際費",
     "transport": "🚃 交通費",
+    "other": "🧺 その他",
     "investment": "🌱 投資",
 }
 
@@ -143,13 +143,14 @@ def render_sidebar() -> None:
         st.link_button("金融庁：こどもNISA", "https://www.fsa.go.jp/access/r7/270.html", use_container_width=True)
         st.link_button("日本FP協会：小学生の夢", "https://www.jafp.or.jp/personal_finance/yume/syokugyo/", use_container_width=True)
         st.link_button("厚労省 job tag", "https://shigoto.mhlw.go.jp/", use_container_width=True)
+        st.link_button("厚労省：令和7年賃金調査", "https://www.mhlw.go.jp/toukei/itiran/roudou/chingin/kouzou/z2025/index.html", use_container_width=True)
         st.link_button("参考にしたPIVOT動画", "https://www.youtube.com/watch?v=U35WMjyVdmI", use_container_width=True)
         st.caption("金額、相場、職業到達確率は学習用に単純化したゲーム設定です。投資成果・就職・年収を予測または保証しません。")
 
 
-def render_product_allocation(state: dict) -> dict[str, int]:
+def render_product_allocation(state: dict, step_number: str = "④") -> dict[str, int]:
     """Show each product's explanation together with its allocation input."""
-    st.markdown("#### 🧩 ④ 商品を知って、投資割合を決める")
+    st.markdown(f"#### 🧩 {step_number} 商品を知って、投資割合を決める")
     st.caption("説明を読んでから、その商品の割合を入力してください。5つの合計を100%にします。")
     allocation: dict[str, int] = {}
     cols = st.columns(5)
@@ -178,6 +179,64 @@ def render_product_allocation(state: dict) -> dict[str, int]:
             )
     st.markdown(f"**割合の合計：{sum(allocation.values())}%**")
     return allocation
+
+
+def render_salary_breakdown(state: dict, heading: str = "### 🧾 年齢に合わせた給料と手取り") -> dict:
+    """Show the current age-aware salary and return its take-home estimate."""
+    salary = annual_salary(state)
+    take_home = estimate_take_home(salary, state["age"])
+    profession = state["profession"]
+    st.markdown(heading)
+    pay_cols = st.columns(5)
+    pay_cols[0].metric("月の総支給", monthly_yen(salary * 10_000 / 12))
+    pay_cols[1].metric("社会保険料", f"−{monthly_yen(take_home['social_insurance'] * 10_000 / 12)}")
+    pay_cols[2].metric("所得税", f"−{monthly_yen(take_home['income_tax'] * 10_000 / 12)}")
+    pay_cols[3].metric("住民税", f"−{monthly_yen(take_home['resident_tax'] * 10_000 / 12)}")
+    pay_cols[4].metric("月の手取り", monthly_yen(take_home["monthly_take_home_yen"]))
+    st.caption(
+        f"{state['age']}歳・就業{max(1, state['age'] - state['social_age'] + 1)}年目の学習用モデル年収：{yen(salary)}。"
+        "公開平均を初任給にはせず、就職1年目の金額から経験に応じて変化させています。"
+    )
+    st.markdown(
+        f"出典・参考：[{profession['salary_source']}]({profession['salary_url']})　｜　{profession['salary_note']}"
+    )
+    st.caption(
+        "税・社会保険は東京在住・会社員・扶養なしとして単純化した概算です。"
+        "実際の金額は地域、扶養、会社制度、賞与の支給方法などで変わります。"
+    )
+    return take_home
+
+
+def render_budget_inputs(state: dict, take_home_yen: int, key_prefix: str) -> tuple[dict[str, int], int]:
+    """Render an editable monthly budget and return it with unassigned money."""
+    stored = state.get("household_budget") or default_household_budget(take_home_yen)
+    budget: dict[str, int] = {}
+    budget_cols = st.columns(2)
+    for index, key in enumerate(BUDGET_KEYS):
+        with budget_cols[index % 2]:
+            budget[key] = int(
+                st.number_input(
+                    BUDGET_LABELS[key],
+                    min_value=0,
+                    max_value=take_home_yen,
+                    value=min(int(stored.get(key, 0)), take_home_yen),
+                    step=1_000,
+                    format="%d",
+                    key=f"{key_prefix}_{key}",
+                    help="1か月あたりの金額（円）",
+                )
+            )
+    total = sum(budget.values())
+    remaining = take_home_yen - total
+    summary_cols = st.columns(3)
+    summary_cols[0].metric("手取り", monthly_yen(take_home_yen))
+    summary_cols[1].metric("設定した使い道", monthly_yen(total))
+    summary_cols[2].metric("まだ決めていないお金", monthly_yen(remaining))
+    if remaining < 0:
+        st.error(f"手取りを{monthly_yen(abs(remaining))}超えています。金額を見直してください。")
+    else:
+        st.success("手取りの範囲に収まっています。残りは予備費として残せます。")
+    return budget, remaining
 
 
 def render_asset_chart(state: dict) -> None:
@@ -221,6 +280,17 @@ def render_last_result(result: dict | None) -> None:
         if result["learning_spend"]:
             st.caption(f"夢の準備に使ったお金：{yen(result['learning_spend'])}")
         st.caption(f"設定した毎月の投資金額：{monthly_yen(result['monthly_investment_yen'])}")
+        if result.get("initial_allocation"):
+            st.markdown("**最初の一括投資も、毎月の投資と同じ割合で分配しました。**")
+            st.dataframe(
+                pd.DataFrame(result["initial_allocation"]),
+                column_config={
+                    "割合": st.column_config.NumberColumn(format="%d%%"),
+                    "金額": st.column_config.NumberColumn(format="%.1f万円"),
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
         if result["nisa_added"]:
             st.caption(f"この期間に、こどもNISA対象として数えた積立：{yen(result['nisa_added'])}")
         breakdown = pd.DataFrame(result["breakdown"])
@@ -318,7 +388,12 @@ def career_screen(state: dict) -> None:
             {
                 "夢の仕事": f"{career['emoji']} {career['name']}",
                 "ゲーム内の到達確率": career_probability(state, career["key"]),
-                "参考年収": career["salary"],
+                "就職1年目モデル年収": career["starting_salary"],
+                "1年目の月手取り目安": estimate_take_home(
+                    career["starting_salary"], state["age"]
+                )["monthly_take_home_yen"],
+                "公開データの参考額": career["salary"],
+                "参考データの平均年齢": career["average_age"],
                 "準備のヒント": career["skills"],
             }
         )
@@ -326,7 +401,10 @@ def career_screen(state: dict) -> None:
         pd.DataFrame(rows),
         column_config={
             "ゲーム内の到達確率": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%"),
-            "参考年収": st.column_config.NumberColumn(format="%d万円"),
+            "就職1年目モデル年収": st.column_config.NumberColumn(format="%.1f万円"),
+            "1年目の月手取り目安": st.column_config.NumberColumn(format="%d円"),
+            "公開データの参考額": st.column_config.NumberColumn(format="%.1f万円"),
+            "参考データの平均年齢": st.column_config.NumberColumn(format="%.1f歳"),
         },
         hide_index=True,
         use_container_width=True,
@@ -353,50 +431,15 @@ def career_screen(state: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    salary = annual_salary(preview_state)
-    take_home = estimate_take_home(salary, state["age"])
-    st.markdown("### 🧾 給料から手取りを計算しよう")
-    pay_cols = st.columns(5)
-    pay_cols[0].metric("月の総支給", monthly_yen(salary * 10_000 / 12))
-    pay_cols[1].metric("社会保険料", f"−{monthly_yen(take_home['social_insurance'] * 10_000 / 12)}")
-    pay_cols[2].metric("所得税", f"−{monthly_yen(take_home['income_tax'] * 10_000 / 12)}")
-    pay_cols[3].metric("住民税", f"−{monthly_yen(take_home['resident_tax'] * 10_000 / 12)}")
-    pay_cols[4].metric("月の手取り", monthly_yen(take_home["monthly_take_home_yen"]))
-    st.caption(
-        "2026年の公表税率を参考に、東京在住・会社員・扶養なしとして単純化した学習用概算です。"
-        "実際の手取りは地域、年齢、扶養、会社の制度などで変わります。"
-    )
+    take_home = render_salary_breakdown(preview_state, "### 🧾 就職1年目の給料と手取り")
 
     st.markdown("### 🏠 手取りの使い道を決めよう")
-    st.caption("家賃などを自分で設定し、残った範囲で毎月の投資金額を決めます。")
-    defaults = default_household_budget(int(take_home["monthly_take_home_yen"]))
-    budget: dict[str, int] = {}
-    budget_cols = st.columns(2)
-    for index, key in enumerate(BUDGET_KEYS):
-        with budget_cols[index % 2]:
-            budget[key] = int(
-                st.number_input(
-                    BUDGET_LABELS[key],
-                    min_value=0,
-                    max_value=int(take_home["monthly_take_home_yen"]),
-                    value=defaults[key],
-                    step=1_000,
-                    format="%d",
-                    key=f"budget_{selected['key']}_{key}",
-                    help="1か月あたりの金額（円）",
-                )
-            )
-
-    monthly_total = sum(budget.values())
-    monthly_remaining = int(take_home["monthly_take_home_yen"]) - monthly_total
-    summary_cols = st.columns(3)
-    summary_cols[0].metric("手取り", monthly_yen(take_home["monthly_take_home_yen"]))
-    summary_cols[1].metric("設定した支出＋投資", monthly_yen(monthly_total))
-    summary_cols[2].metric("まだ使い道を決めていないお金", monthly_yen(monthly_remaining))
-    if monthly_remaining < 0:
-        st.error(f"手取りを{monthly_yen(abs(monthly_remaining))}超えています。金額を見直してください。")
-    else:
-        st.success("手取りの範囲に収まっています。残りは予備費や自由費として考えられます。")
+    st.caption("家賃などに加えて『その他』も設定できます。次の年齢ステップでも見直せます。")
+    budget, monthly_remaining = render_budget_inputs(
+        preview_state,
+        int(take_home["monthly_take_home_yen"]),
+        f"career_budget_{selected['key']}_{state['turn']}",
+    )
 
     if st.button("🌟 この仕事と家計でスタート", use_container_width=True):
         if monthly_remaining < 0:
@@ -428,7 +471,7 @@ def game_screen(state: dict) -> None:
     if state["turn"] == 0:
         st.info(
             f"開始時の純資産は、設定した最初の一括投資金額 {monthly_yen(state['initial_investment_yen'])} です。"
-            "最初は現金として持ち、ゲームを進めると選んだ投資割合へ配分されます。"
+            "次へ進むとき、毎月の投資と同じ商品割合へ一度だけ分配されます。"
         )
     render_debt_explanation(state)
 
@@ -464,6 +507,8 @@ def game_screen(state: dict) -> None:
         st.write(f"**お金の知識クイズ：** {quiz['question']}")
         quiz_label = st.radio("知識クイズの答え", quiz["options"], index=None, label_visibility="collapsed")
 
+        budget = None
+        budget_remaining = 0
         if state["age"] < state["social_age"]:
             learning_percent = st.slider(
                 "② 毎月の投資予定のうち、夢の準備（本・習い事・体験）に使う割合",
@@ -473,39 +518,36 @@ def game_screen(state: dict) -> None:
                 5,
                 format="%d%%",
             )
+            st.markdown("#### 💴 ③ 毎月の投資金額を決める")
+            monthly_investment = int(
+                st.number_input(
+                    "毎月の投資金額（円）",
+                    min_value=0,
+                    max_value=50_000,
+                    value=min(int(state["monthly_contribution_yen"]), 50_000),
+                    step=1_000,
+                    format="%d",
+                    help="この金額を、下で決める割合に分けて毎月投資します。",
+                )
+            )
+            st.caption(f"1年間では {monthly_yen(monthly_investment * 12)} を投資する設定です。")
+            allocation_step = "④"
         else:
             learning_percent = 0
-            take_home = estimate_take_home(annual_salary(state), state["age"])
-            household_budget = state.get("household_budget") or {}
-            living_costs = sum(
-                int(household_budget.get(key, 0))
-                for key in BUDGET_KEYS
-                if key != "investment"
+            take_home = render_salary_breakdown(
+                state, "#### 🧾 ② 今の年齢の給料・手取りと使い道を見直す"
             )
-            st.markdown("#### 🧾 ② 現在の毎月の家計")
-            cashflow_cols = st.columns(3)
-            cashflow_cols[0].metric("手取り", monthly_yen(take_home["monthly_take_home_yen"]))
-            cashflow_cols[1].metric("生活費", monthly_yen(living_costs))
-            cashflow_cols[2].metric("投資に回せる上限", monthly_yen(max_monthly_investment_yen(state)))
-            st.caption("生活費は職業を選んだときの設定です。給料は年齢とともにゲーム内で変化します。")
-
-        st.markdown("#### 💴 ③ 毎月の投資金額を決める")
-        monthly_max = max_monthly_investment_yen(state) if profession else 50_000
-        monthly_default = min(int(state["monthly_contribution_yen"]), monthly_max)
-        monthly_investment = int(
-            st.number_input(
-                "毎月の投資金額（円）",
-                min_value=0,
-                max_value=monthly_max,
-                value=monthly_default,
-                step=1_000,
-                format="%d",
-                help="この金額を、下で決める割合に分けて毎月投資します。",
+            st.caption("前のステップの金額が入っています。給料や暮らしの変化に合わせて、毎回すべて見直せます。")
+            budget, budget_remaining = render_budget_inputs(
+                state,
+                int(take_home["monthly_take_home_yen"]),
+                f"period_budget_{state['turn']}",
             )
-        )
-        st.caption(f"1年間では {monthly_yen(monthly_investment * 12)} を投資する設定です。")
+            monthly_investment = budget["investment"]
+            st.caption(f"投資は1年間で {monthly_yen(monthly_investment * 12)} の設定です。")
+            allocation_step = "③"
 
-        allocation = render_product_allocation(state)
+        allocation = render_product_allocation(state, allocation_step)
         rebalance = st.toggle(
             "毎年リバランスする",
             value=bool(state["rebalance"]),
@@ -516,12 +558,15 @@ def game_screen(state: dict) -> None:
     if submitted:
         if quiz_label is None:
             st.warning("クイズの答えを選んでください。")
+        elif budget is not None and budget_remaining < 0:
+            st.error("手取りの使い道を合計額以内にしてから進んでください。")
         elif sum(allocation.values()) != 100:
             st.error(f"配分の合計が{sum(allocation.values())}%です。100%になるよう直してください。")
         else:
             try:
+                period_state = set_household_budget(state, budget) if budget is not None else state
                 next_state = play_period(
-                    state,
+                    period_state,
                     allocation,
                     rebalance,
                     option_labels[event_label],
@@ -571,10 +616,13 @@ if "game" in st.session_state:
     required_state_keys = {
         "start_age",
         "initial_investment_yen",
+        "initial_allocation_done",
         "household_budget",
         "debt_history",
     }
-    if not required_state_keys.issubset(st.session_state.game):
+    saved_profession = st.session_state.game.get("profession")
+    outdated_profession = saved_profession and "starting_salary" not in saved_profession
+    if not required_state_keys.issubset(st.session_state.game) or outdated_profession:
         del st.session_state.game
         st.session_state.undo_stack = []
 

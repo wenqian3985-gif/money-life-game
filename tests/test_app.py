@@ -49,6 +49,8 @@ def test_career_step_calculates_take_home_and_accepts_budget():
     app.button[0].click().run()
     assert not app.exception
     assert "月の手取り" in [item.label for item in app.metric]
+    take_home_metric = next(item for item in app.metric if item.label == "月の手取り")
+    assert int(take_home_metric.value.replace(",", "").replace("円", "")) < 300_000
     assert "💳 なぜ借金があるの？" in [item.label for item in app.expander]
     assert {item.label for item in app.number_input} == {
         "🏠 家賃",
@@ -57,10 +59,15 @@ def test_career_step_calculates_take_home_and_accepts_budget():
         "🍚 食費",
         "🎈 交際費",
         "🚃 交通費",
+        "🧺 その他",
         "🌱 投資",
     }
 
     app.button[0].click().run()
     assert not app.exception
     assert app.metric[0].value == "18歳"
-    assert app.number_input[0].label == "毎月の投資金額（円）"
+    labels = [item.label for item in app.number_input]
+    assert "🧺 その他" in labels
+    assert "🌱 投資" in labels
+    assert "毎月の投資金額（円）" not in labels
+    assert labels.count("投資割合（%）") == 5
