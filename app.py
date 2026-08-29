@@ -199,7 +199,7 @@ def start_screen() -> None:
             name = st.text_input("子どもの名前", value="悠然", max_chars=12)
             start_age = st.slider("いま何歳？", 0, 17, 11)
             social_age = st.slider("何歳から社会人になる？", 18, 30, 22)
-            monthly = st.slider("毎月、未来に回す金額", 0, 50_000, 10_000, 5_000, format="%d円")
+            monthly = st.slider("毎月、貯蓄・投資に回す金額", 0, 50_000, 10_000, 5_000, format="%d円")
             difficulty = st.radio("ことばの難しさ", ["小学校高学年", "中学生"], horizontal=True)
             started = st.form_submit_button("🚀 この設定でスタート", use_container_width=True)
         if started:
