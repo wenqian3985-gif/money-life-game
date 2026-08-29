@@ -13,6 +13,7 @@ from game_engine import (  # noqa: E402
     career_probability,
     choose_career,
     create_new_game,
+    current_event,
     default_household_budget,
     estimate_take_home,
     max_monthly_investment_yen,
@@ -57,11 +58,20 @@ def test_real_child_start_age_is_preserved(age):
     assert state["history"][0]["age"] == age
 
 
+def test_initial_investment_sets_starting_net_worth():
+    state = create_new_game("こども", initial_investment_yen=300_000, seed=11)
+    assert state["initial_investment_yen"] == 300_000
+    assert state["cash"] == 30.0
+    assert total_assets(state) == 30.0
+
+
 def test_invalid_ages_are_rejected():
     with pytest.raises(ValueError):
         create_new_game("テスト", start_age=18)
     with pytest.raises(ValueError):
         create_new_game("テスト", social_age=17)
+    with pytest.raises(ValueError):
+        create_new_game("テスト", initial_investment_yen=1_010_000)
 
 
 def test_rule_of_72():
@@ -173,3 +183,16 @@ def test_rebalancing_is_recorded_in_reasons():
     result = play_period(state, DEFAULT_ALLOCATION, True, _option_for(state), 0)
     assert len(result["last_result"]["breakdown"]) == len(ASSET_KEYS)
     assert any(abs(row["配分調整"]) > 0 for row in result["last_result"]["breakdown"])
+
+
+def test_debt_reason_records_shortfall_and_interest():
+    state = create_new_game("テスト", start_age=10, initial_investment_yen=0, seed=71)
+    costly_option = current_event(state)["options"][0]["key"]
+    result = play_period(state, DEFAULT_ALLOCATION, True, costly_option, 0)
+    debt = result["last_result"]
+    assert debt["debt_borrowed"] == 2.0
+    assert debt["debt_interest"] > 0
+    assert debt["debt_end"] > debt["debt_borrowed"]
+    assert "現金が足りず" in debt["debt_reason"]
+    assert "年4%の利息" in debt["debt_reason"]
+    assert result["debt_history"][-1]["理由"] == debt["debt_reason"]
