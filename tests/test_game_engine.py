@@ -9,11 +9,16 @@ sys.path.insert(0, str(ROOT))
 
 from game_engine import (  # noqa: E402
     ASSET_KEYS,
+    BUDGET_KEYS,
     career_probability,
     choose_career,
     create_new_game,
+    default_household_budget,
+    estimate_take_home,
+    max_monthly_investment_yen,
     next_checkpoint_age,
     play_period,
+    set_household_budget,
     total_assets,
     validate_state,
     years_to_double,
@@ -91,6 +96,58 @@ def test_learning_raises_game_career_probability():
     state = _play_until_career(state)
     after = career_probability(state, "doctor")
     assert after > before
+
+
+def test_take_home_subtracts_tax_and_social_insurance():
+    result = estimate_take_home(579, age=22)
+    assert result["gross_salary"] == 579
+    assert result["social_insurance"] > 0
+    assert result["income_tax"] > 0
+    assert result["resident_tax"] > 0
+    assert 0 < result["annual_take_home"] < result["gross_salary"]
+    assert result["monthly_take_home_yen"] > 0
+
+
+def test_household_budget_must_fit_take_home():
+    state = create_new_game("テスト", start_age=17, social_age=18, seed=55)
+    state = play_period(state, DEFAULT_ALLOCATION, True, _option_for(state), 0)
+    state = choose_career(state, "programmer")
+    take_home = estimate_take_home(total_salary := state["profession"]["salary"], age=18)
+    assert total_salary > 0
+    budget = default_household_budget(int(take_home["monthly_take_home_yen"]))
+    saved = set_household_budget(state, budget)
+    assert set(saved["household_budget"]) == set(BUDGET_KEYS)
+    assert saved["monthly_contribution_yen"] == budget["investment"]
+    assert max_monthly_investment_yen(saved) >= budget["investment"]
+
+    too_large = dict(budget)
+    too_large["rent"] = int(take_home["monthly_take_home_yen"])
+    with pytest.raises(ValueError):
+        set_household_budget(state, too_large)
+
+
+def test_selected_monthly_investment_controls_adult_contribution():
+    state = create_new_game("テスト", start_age=17, social_age=18, seed=56)
+    state = play_period(state, DEFAULT_ALLOCATION, True, _option_for(state), 0)
+    state = choose_career(state, "programmer")
+    take_home = estimate_take_home(state["profession"]["salary"], age=18)
+    budget = default_household_budget(int(take_home["monthly_take_home_yen"]))
+    state = set_household_budget(state, budget)
+    result = play_period(
+        state,
+        DEFAULT_ALLOCATION,
+        False,
+        _option_for(state),
+        0,
+        0,
+        20_000,
+    )
+    assert result["last_result"]["monthly_investment_yen"] == 20_000
+    assert math.isclose(
+        sum(row["積立"] for row in result["last_result"]["breakdown"]),
+        120.0,
+        abs_tol=0.2,
+    )
 
 
 def test_game_is_deterministic_and_has_yearly_history():
