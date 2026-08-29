@@ -52,6 +52,7 @@ def create_new_game(
     start_age: int = 11,
     social_age: int = 22,
     monthly_contribution_yen: int = 10_000,
+    initial_investment_yen: int = 0,
     difficulty: str = "小学校高学年",
     seed: int | None = None,
 ) -> dict[str, Any]:
@@ -62,6 +63,8 @@ def create_new_game(
         raise ValueError("Social-entry age must be between 18 and 30.")
     if not 0 <= monthly_contribution_yen <= 50_000:
         raise ValueError("Monthly contribution must be 0 to 50,000 yen.")
+    if not 0 <= initial_investment_yen <= 1_000_000:
+        raise ValueError("Initial investment must be 0 to 1,000,000 yen.")
 
     actual_seed = seed if seed is not None else secrets.randbelow(10_000_000)
     state: dict[str, Any] = {
@@ -71,10 +74,11 @@ def create_new_game(
         "start_age": start_age,
         "social_age": social_age,
         "monthly_contribution_yen": monthly_contribution_yen,
+        "initial_investment_yen": initial_investment_yen,
         "household_budget": None,
         "age": start_age,
         "turn": 0,
-        "cash": 10.0,
+        "cash": initial_investment_yen / 10_000,
         "bond": 0.0,
         "index": 0.0,
         "stock": 0.0,
@@ -92,6 +96,7 @@ def create_new_game(
         "rebalance": True,
         "history": [],
         "reason_history": [],
+        "debt_history": [],
         "last_result": None,
         "ended": False,
     }
@@ -388,6 +393,7 @@ def play_period(
         raise ValueError("Unknown event option.")
 
     before = _asset_snapshot(new_state)
+    debt_at_start = float(new_state["debt"])
     contributions = {key: 0.0 for key in ASSET_KEYS}
     rebalance_deltas = {key: 0.0 for key in ASSET_KEYS}
     market_changes = {key: 0.0 for key in ASSET_KEYS}
@@ -395,7 +401,8 @@ def play_period(
 
     paid, borrowed = _pay_event(new_state, float(option.get("cost", 0)))
     event_changes["cash"] -= paid
-    new_state["debt"] += float(option.get("debt", 0))
+    explicit_debt = float(option.get("debt", 0))
+    new_state["debt"] += explicit_debt
     new_state["happiness"] += int(option.get("happiness", 0))
     new_state["knowledge"] += int(option.get("knowledge", 0))
 
@@ -404,6 +411,7 @@ def play_period(
     new_state["knowledge"] += 6 if quiz_correct else 2
     total_learning_spend = 0.0
     nisa_added = 0.0
+    debt_interest = 0.0
     yearly_rates: list[dict[str, float]] = []
 
     for age in range(start_age, target_age):
@@ -449,7 +457,9 @@ def play_period(
             new_state[key] = max(0.0, old_value * (1 + rates[key]))
             market_changes[key] += new_state[key] - old_value
 
+        debt_before_interest = float(new_state["debt"])
         new_state["debt"] *= 1 + DEBT_RATE
+        debt_interest += new_state["debt"] - debt_before_interest
         new_state["inflation_factor"] *= 1 + INFLATION_RATE
         new_state["age"] = age + 1
         new_state["history"].append(_history_row(new_state, age + 1))
@@ -487,6 +497,23 @@ def play_period(
             }
         )
 
+    new_borrowing = borrowed + explicit_debt
+    debt_reasons = []
+    if borrowed > 0:
+        debt_reasons.append(
+            f"「{option['label']}」の支払いに現金が足りず、{borrowed:.1f}万円を借りました。"
+        )
+    if explicit_debt > 0:
+        debt_reasons.append(
+            f"「{option['label']}」で、支払いを後回しにした{explicit_debt:.1f}万円が借金になりました。"
+        )
+    if debt_interest > 0:
+        debt_reasons.append(
+            f"借金には年{DEBT_RATE * 100:.0f}%の利息がつき、この期間に{debt_interest:.1f}万円増えました。"
+        )
+    if debt_at_start > 0 and new_borrowing == 0:
+        debt_reasons.insert(0, f"前の期間から借金{debt_at_start:.1f}万円が残っていました。")
+
     result = {
         "age_range": f"{start_age}歳→{target_age}歳",
         "event_title": event["title"],
@@ -494,6 +521,11 @@ def play_period(
         "lesson": option["lesson"],
         "event_cost": float(option.get("cost", 0)),
         "event_borrowed": borrowed + float(option.get("debt", 0)),
+        "debt_start": round(debt_at_start, 1),
+        "debt_borrowed": round(new_borrowing, 1),
+        "debt_interest": round(debt_interest, 1),
+        "debt_end": round(new_state["debt"], 1),
+        "debt_reason": " ".join(debt_reasons),
         "quiz_correct": quiz_correct,
         "quiz_explanation": quiz["explanation"],
         "learning_spend": round(total_learning_spend, 1),
@@ -505,6 +537,17 @@ def play_period(
     new_state["reason_history"].extend(
         [{"期間": result["age_range"], **item} for item in breakdown]
     )
+    if result["debt_start"] > 0 or result["debt_borrowed"] > 0:
+        new_state["debt_history"].append(
+            {
+                "期間": result["age_range"],
+                "開始時の借金": result["debt_start"],
+                "新しい借入": result["debt_borrowed"],
+                "利息": result["debt_interest"],
+                "終了時の借金": result["debt_end"],
+                "理由": result["debt_reason"],
+            }
+        )
     return new_state
 
 

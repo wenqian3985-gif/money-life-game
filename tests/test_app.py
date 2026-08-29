@@ -10,23 +10,32 @@ def test_start_and_first_turn_render_without_error():
     app = AppTest.from_file(APP_PATH, default_timeout=10).run()
     assert not app.exception
     assert app.text_input[0].label == "子どもの名前"
+    assert app.text_input[0].value == ""
     assert app.slider[0].label == "いま何歳？"
+    assert app.number_input[0].label == "最初の一括投資金額（円）"
 
     app.text_input[0].input("悠然")
+    app.number_input[0].set_value(100_000)
     app.button[0].click().run()
     assert not app.exception
     assert app.metric[0].value == "11歳"
+    assert app.metric[1].value == "10.0万円"
     assert len(app.number_input) == 6
     assert app.number_input[0].label == "毎月の投資金額（円）"
     assert [item.label for item in app.number_input[1:]] == ["投資割合（%）"] * 5
     assert app.toggle[0].label == "毎年リバランスする"
 
-    # The second radio is the knowledge quiz. Choose its correct first option.
+    # Avoid a purchase, then answer the knowledge quiz correctly.
+    app.radio[0].set_value(app.radio[0].options[-1])
     app.radio[1].set_value(app.radio[1].options[0])
     app.button[0].click().run()
     assert not app.exception
     assert app.metric[0].value == "16歳"
     assert app.expander[0].label == "🔍 なぜ増えた？なぜ減った？｜11歳→16歳"
+
+    app.sidebar.button[0].click().run()
+    assert not app.exception
+    assert app.metric[0].value == "11歳"
 
 
 def test_career_step_calculates_take_home_and_accepts_budget():
@@ -40,6 +49,7 @@ def test_career_step_calculates_take_home_and_accepts_budget():
     app.button[0].click().run()
     assert not app.exception
     assert "月の手取り" in [item.label for item in app.metric]
+    assert "💳 なぜ借金があるの？" in [item.label for item in app.expander]
     assert {item.label for item in app.number_input} == {
         "🏠 家賃",
         "💡 光熱費",
