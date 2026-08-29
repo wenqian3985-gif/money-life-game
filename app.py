@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import altair as alt
 import pandas as pd
 import streamlit as st
@@ -101,6 +103,18 @@ def hero(title: str, message: str, sub: str = "") -> None:
     )
 
 
+def push_undo_state(state: dict) -> None:
+    """Save one complete checkpoint so the player can go back safely."""
+    st.session_state.setdefault("undo_stack", []).append(copy.deepcopy(state))
+
+
+def go_back_one_step() -> None:
+    undo_stack = st.session_state.get("undo_stack", [])
+    if undo_stack:
+        st.session_state.game = undo_stack.pop()
+        st.rerun()
+
+
 def render_sidebar() -> None:
     with st.sidebar:
         st.markdown("## 🗺️ 冒険ガイド")
@@ -114,8 +128,15 @@ def render_sidebar() -> None:
         )
         st.info("資産額だけが勝ちではありません。『なぜこの配分？』を親子で話すことがゴールです。")
         if "game" in st.session_state:
+            if st.button(
+                "↩️ 前のステップに戻る",
+                use_container_width=True,
+                disabled=not bool(st.session_state.get("undo_stack")),
+            ):
+                go_back_one_step()
             if st.button("🔄 最初から遊ぶ", use_container_width=True):
                 del st.session_state.game
+                st.session_state.undo_stack = []
                 st.rerun()
         st.markdown("---")
         st.markdown("#### 📚 制度・データの出典")
@@ -128,7 +149,7 @@ def render_sidebar() -> None:
 
 def render_product_allocation(state: dict) -> dict[str, int]:
     """Show each product's explanation together with its allocation input."""
-    st.markdown("#### 🧩 ⑤ 商品を知って、投資割合を決める")
+    st.markdown("#### 🧩 ④ 商品を知って、投資割合を決める")
     st.caption("説明を読んでから、その商品の割合を入力してください。5つの合計を100%にします。")
     allocation: dict[str, int] = {}
     cols = st.columns(5)
@@ -192,6 +213,11 @@ def render_last_result(result: dict | None) -> None:
             {result['lesson']}<br><br><b>クイズ：</b>{quiz_mark} — {result['quiz_explanation']}</div>""",
             unsafe_allow_html=True,
         )
+        if result["debt_end"] > 0:
+            st.warning(
+                f"💳 この期間の終了時の借金：{yen(result['debt_end'])}\n\n"
+                f"{result['debt_reason']}"
+            )
         if result["learning_spend"]:
             st.caption(f"夢の準備に使ったお金：{yen(result['learning_spend'])}")
         st.caption(f"設定した毎月の投資金額：{monthly_yen(result['monthly_investment_yen'])}")
@@ -210,6 +236,19 @@ def render_last_result(result: dict | None) -> None:
             hide_index=True,
             use_container_width=True,
         )
+
+
+def render_debt_explanation(state: dict) -> None:
+    if state["debt"] <= 0:
+        return
+    debt_history = state.get("debt_history", [])
+    latest_reason = debt_history[-1]["理由"] if debt_history else "借金の記録を確認してください。"
+    with st.expander("💳 なぜ借金があるの？", expanded=True):
+        st.error(f"現在の借金：{yen(state['debt'])}")
+        st.write(latest_reason)
+        st.caption("このゲームでは、借金に年4%の利息がつく学習用設定です。")
+        if debt_history:
+            st.dataframe(pd.DataFrame(debt_history), hide_index=True, use_container_width=True)
 
 
 def start_screen() -> None:
@@ -231,14 +270,33 @@ def start_screen() -> None:
     with right:
         with st.form("start_form"):
             st.markdown("### 🌱 冒険の設定")
-            name = st.text_input("子どもの名前", value="悠然", max_chars=12)
+            name = st.text_input("子どもの名前", value="", max_chars=12, placeholder="名前を入力")
             start_age = st.slider("いま何歳？", 0, 17, 11)
             social_age = st.slider("何歳から社会人になる？", 18, 30, 22)
+            initial_investment = int(
+                st.number_input(
+                    "最初の一括投資金額（円）",
+                    min_value=0,
+                    max_value=1_000_000,
+                    value=0,
+                    step=10_000,
+                    format="%d",
+                    help="0円でも遊べます。入力した金額は最初に現金として持ち、選んだ割合へ配分されます。",
+                )
+            )
             monthly = st.slider("最初の毎月の投資金額", 0, 50_000, 10_000, 5_000, format="%d円")
             difficulty = st.radio("ことばの難しさ", ["小学校高学年", "中学生"], horizontal=True)
             started = st.form_submit_button("🚀 この設定でスタート", use_container_width=True)
         if started:
-            st.session_state.game = create_new_game(name, start_age, social_age, monthly, difficulty)
+            st.session_state.game = create_new_game(
+                name,
+                start_age,
+                social_age,
+                monthly,
+                initial_investment,
+                difficulty,
+            )
+            st.session_state.undo_stack = []
             st.rerun()
 
 
@@ -253,6 +311,7 @@ def career_screen(state: dict) -> None:
         学びに時間やお金を使った分だけ、すべての仕事のゲーム内確率が少し上がります。</div>""",
         unsafe_allow_html=True,
     )
+    render_debt_explanation(state)
     rows = []
     for career in CAREERS:
         rows.append(
@@ -343,7 +402,9 @@ def career_screen(state: dict) -> None:
         if monthly_remaining < 0:
             st.error("支出と投資を手取り以内にしてから進んでください。")
         else:
-            st.session_state.game = set_household_budget(preview_state, budget)
+            next_state = set_household_budget(preview_state, budget)
+            push_undo_state(state)
+            st.session_state.game = next_state
             st.rerun()
 
 
@@ -364,6 +425,12 @@ def game_screen(state: dict) -> None:
     metrics[3].metric("借金", yen(state["debt"]))
     metrics[4].metric("幸福", f"{state['happiness']}/100")
     metrics[5].metric("金融知識", f"{state['knowledge']}/100")
+    if state["turn"] == 0:
+        st.info(
+            f"開始時の純資産は、設定した最初の一括投資金額 {monthly_yen(state['initial_investment_yen'])} です。"
+            "最初は現金として持ち、ゲームを進めると選んだ投資割合へ配分されます。"
+        )
+    render_debt_explanation(state)
 
     career_result = state.get("career_result")
     if career_result:
@@ -392,14 +459,14 @@ def game_screen(state: dict) -> None:
     )
     with st.form(f"period_form_{state['turn']}"):
         option_labels = {item["label"]: item["key"] for item in event["options"]}
-        event_label = st.radio("① あなたならどうする？", list(option_labels))
-        st.markdown("#### 🧠 ② 1問クイズ")
-        st.write(quiz["question"])
-        quiz_label = st.radio("答え", quiz["options"], index=None, label_visibility="collapsed")
+        st.markdown("#### 🧠 ① 2つのクイズに答える")
+        event_label = st.radio("人生の選択クイズ：あなたならどうする？", list(option_labels))
+        st.write(f"**お金の知識クイズ：** {quiz['question']}")
+        quiz_label = st.radio("知識クイズの答え", quiz["options"], index=None, label_visibility="collapsed")
 
         if state["age"] < state["social_age"]:
             learning_percent = st.slider(
-                "③ 毎月の積立予定のうち、夢の準備（本・習い事・体験）に使う割合",
+                "② 毎月の投資予定のうち、夢の準備（本・習い事・体験）に使う割合",
                 0,
                 30,
                 10,
@@ -415,14 +482,14 @@ def game_screen(state: dict) -> None:
                 for key in BUDGET_KEYS
                 if key != "investment"
             )
-            st.markdown("#### 🧾 ③ 現在の毎月の家計")
+            st.markdown("#### 🧾 ② 現在の毎月の家計")
             cashflow_cols = st.columns(3)
             cashflow_cols[0].metric("手取り", monthly_yen(take_home["monthly_take_home_yen"]))
             cashflow_cols[1].metric("生活費", monthly_yen(living_costs))
             cashflow_cols[2].metric("投資に回せる上限", monthly_yen(max_monthly_investment_yen(state)))
             st.caption("生活費は職業を選んだときの設定です。給料は年齢とともにゲーム内で変化します。")
 
-        st.markdown("#### 💴 ④ 毎月の投資金額を決める")
+        st.markdown("#### 💴 ③ 毎月の投資金額を決める")
         monthly_max = max_monthly_investment_yen(state) if profession else 50_000
         monthly_default = min(int(state["monthly_contribution_yen"]), monthly_max)
         monthly_investment = int(
@@ -453,7 +520,7 @@ def game_screen(state: dict) -> None:
             st.error(f"配分の合計が{sum(allocation.values())}%です。100%になるよう直してください。")
         else:
             try:
-                st.session_state.game = play_period(
+                next_state = play_period(
                     state,
                     allocation,
                     rebalance,
@@ -462,6 +529,8 @@ def game_screen(state: dict) -> None:
                     learning_percent,
                     monthly_investment,
                 )
+                push_undo_state(state)
+                st.session_state.game = next_state
                 st.rerun()
             except ValueError as exc:
                 st.error(str(exc))
@@ -485,21 +554,29 @@ def ending_screen(state: dict) -> None:
     metrics[2].metric("借金", yen(state["debt"]))
     metrics[3].metric("幸福", f"{state['happiness']}/100")
     metrics[4].metric("金融知識", f"{state['knowledge']}/100")
+    render_debt_explanation(state)
     render_last_result(state.get("last_result"))
     render_asset_chart(state)
     with st.expander("📒 全期間の増減理由", expanded=False):
         st.dataframe(pd.DataFrame(state["reason_history"]), hide_index=True, use_container_width=True)
     if st.button("🔄 違う年齢・配分で、もう一度遊ぶ", use_container_width=True):
         del st.session_state.game
+        st.session_state.undo_stack = []
         st.rerun()
 
 
 # A deployment can briefly reconnect an open browser with the previous version's
 # session dictionary. Reset only that incompatible in-memory state.
 if "game" in st.session_state:
-    required_state_keys = {"start_age", "household_budget"}
+    required_state_keys = {
+        "start_age",
+        "initial_investment_yen",
+        "household_budget",
+        "debt_history",
+    }
     if not required_state_keys.issubset(st.session_state.game):
         del st.session_state.game
+        st.session_state.undo_stack = []
 
 render_sidebar()
 if "game" not in st.session_state:
