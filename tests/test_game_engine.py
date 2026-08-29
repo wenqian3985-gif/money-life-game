@@ -10,7 +10,9 @@ sys.path.insert(0, str(ROOT))
 from game_engine import (  # noqa: E402
     ASSET_KEYS,
     BUDGET_KEYS,
+    annual_salary,
     career_probability,
+    career_salary_at_age,
     choose_career,
     create_new_game,
     current_event,
@@ -118,11 +120,22 @@ def test_take_home_subtracts_tax_and_social_insurance():
     assert result["monthly_take_home_yen"] > 0
 
 
+def test_programmer_uses_first_year_salary_then_age_experience_curve():
+    from content import career_by_key
+
+    career = career_by_key("programmer")
+    first_year = career_salary_at_age(career, age=22, social_age=22)
+    age_37 = career_salary_at_age(career, age=37, social_age=22)
+    assert first_year == career["starting_salary"] == 360
+    assert age_37 == career["salary"]
+    assert estimate_take_home(first_year, age=22)["monthly_take_home_yen"] < 300_000
+
+
 def test_household_budget_must_fit_take_home():
     state = create_new_game("テスト", start_age=17, social_age=18, seed=55)
     state = play_period(state, DEFAULT_ALLOCATION, True, _option_for(state), 0)
     state = choose_career(state, "programmer")
-    take_home = estimate_take_home(total_salary := state["profession"]["salary"], age=18)
+    take_home = estimate_take_home(total_salary := annual_salary(state), age=18)
     assert total_salary > 0
     budget = default_household_budget(int(take_home["monthly_take_home_yen"]))
     saved = set_household_budget(state, budget)
@@ -140,7 +153,7 @@ def test_selected_monthly_investment_controls_adult_contribution():
     state = create_new_game("テスト", start_age=17, social_age=18, seed=56)
     state = play_period(state, DEFAULT_ALLOCATION, True, _option_for(state), 0)
     state = choose_career(state, "programmer")
-    take_home = estimate_take_home(state["profession"]["salary"], age=18)
+    take_home = estimate_take_home(annual_salary(state), age=18)
     budget = default_household_budget(int(take_home["monthly_take_home_yen"]))
     state = set_household_budget(state, budget)
     result = play_period(
@@ -158,6 +171,42 @@ def test_selected_monthly_investment_controls_adult_contribution():
         120.0,
         abs_tol=0.2,
     )
+
+
+def test_initial_lump_sum_uses_same_allocation_once():
+    state = create_new_game(
+        "テスト",
+        start_age=10,
+        initial_investment_yen=200_000,
+        monthly_contribution_yen=0,
+        seed=88,
+    )
+    no_cost_option = current_event(state)["options"][-1]["key"]
+    first = play_period(state, DEFAULT_ALLOCATION, False, no_cost_option, 0, 0, 0)
+    allocated = first["last_result"]["initial_allocation"]
+    assert {row["商品"] for row in allocated}
+    assert math.isclose(sum(row["金額"] for row in allocated), 20.0, abs_tol=0.1)
+    assert [row["割合"] for row in allocated] == [25, 20, 45, 10]
+    assert first["initial_allocation_done"] is True
+
+    second = play_period(first, DEFAULT_ALLOCATION, False, _option_for(first), 0, 0, 0)
+    assert second["last_result"]["initial_allocation"] == []
+
+
+def test_adult_budget_includes_other_and_can_be_updated_each_step():
+    state = create_new_game("テスト", start_age=17, social_age=18, seed=90)
+    state = play_period(state, DEFAULT_ALLOCATION, True, _option_for(state), 0)
+    state = choose_career(state, "programmer")
+    take_home = estimate_take_home(annual_salary(state), age=state["age"])
+    budget = default_household_budget(int(take_home["monthly_take_home_yen"]))
+    assert "other" in budget
+    state = set_household_budget(state, budget)
+    state = play_period(state, DEFAULT_ALLOCATION, False, _option_for(state), 0, 0, budget["investment"])
+
+    updated = dict(state["household_budget"])
+    updated["other"] += 1_000
+    state = set_household_budget(state, updated)
+    assert state["household_budget"]["other"] == budget["other"] + 1_000
 
 
 def test_game_is_deterministic_and_has_yearly_history():
