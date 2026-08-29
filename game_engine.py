@@ -21,6 +21,15 @@ MINOR_NISA_ANNUAL_LIMIT = 60.0
 MINOR_NISA_TOTAL_LIMIT = 600.0
 DEBT_RATE = 0.04
 INFLATION_RATE = 0.02
+BUDGET_KEYS = (
+    "rent",
+    "utilities",
+    "communications",
+    "food",
+    "social",
+    "transport",
+    "investment",
+)
 
 
 def _rng(seed: int, marker: int, label: str) -> random.Random:
@@ -62,6 +71,7 @@ def create_new_game(
         "start_age": start_age,
         "social_age": social_age,
         "monthly_contribution_yen": monthly_contribution_yen,
+        "household_budget": None,
         "age": start_age,
         "turn": 0,
         "cash": 10.0,
@@ -127,6 +137,148 @@ def annual_salary(state: dict[str, Any]) -> float:
         return 0.0
     years = max(0, state["age"] - state["social_age"])
     return float(profession["salary"]) * (1.018**years)
+
+
+def _salary_income_deduction(gross_salary: float) -> float:
+    """2026 learning-model salary deduction, in 万円."""
+    if gross_salary <= 190:
+        return 65.0
+    if gross_salary <= 360:
+        return gross_salary * 0.30 + 8
+    if gross_salary <= 660:
+        return gross_salary * 0.20 + 44
+    if gross_salary <= 850:
+        return gross_salary * 0.10 + 110
+    return 195.0
+
+
+def _basic_income_deduction(total_income: float) -> float:
+    """Simplified 2026 basic deduction bands, in 万円."""
+    if total_income <= 132:
+        return 95.0
+    if total_income <= 336:
+        return 88.0
+    if total_income <= 489:
+        return 68.0
+    if total_income <= 655:
+        return 63.0
+    if total_income <= 2350:
+        return 58.0
+    if total_income <= 2400:
+        return 48.0
+    if total_income <= 2450:
+        return 32.0
+    if total_income <= 2500:
+        return 16.0
+    return 0.0
+
+
+def _progressive_income_tax(taxable_income: float) -> float:
+    """Japanese national income-tax quick table, in 万円."""
+    if taxable_income <= 0:
+        return 0.0
+    brackets = (
+        (195, 0.05, 0.0),
+        (330, 0.10, 9.75),
+        (695, 0.20, 42.75),
+        (900, 0.23, 63.60),
+        (1800, 0.33, 153.60),
+        (4000, 0.40, 279.60),
+        (math.inf, 0.45, 479.60),
+    )
+    for ceiling, rate, deduction in brackets:
+        if taxable_income <= ceiling:
+            return max(0.0, taxable_income * rate - deduction)
+    raise AssertionError("Income-tax bracket was not found.")
+
+
+def estimate_take_home(gross_salary: float, age: int = 22) -> dict[str, float | int]:
+    """Estimate annual deductions and monthly take-home for learning purposes.
+
+    Values are simplified and assume a single salaried employee in Tokyo with no
+    dependants. Annual money fields use 万円; the monthly take-home uses 円.
+    """
+    gross = max(0.0, float(gross_salary))
+    employee_social_rate = 0.04925 + 0.0915 + 0.00115 + 0.005
+    if 40 <= age <= 64:
+        employee_social_rate += 0.0081
+    social_insurance = gross * employee_social_rate
+
+    employment_income = max(0.0, gross - _salary_income_deduction(gross))
+    taxable_income = max(
+        0.0,
+        employment_income
+        - social_insurance
+        - _basic_income_deduction(employment_income),
+    )
+    income_tax = _progressive_income_tax(taxable_income) * 1.021
+    resident_taxable = max(0.0, employment_income - social_insurance - 43.0)
+    resident_tax = resident_taxable * 0.10 + (0.5 if resident_taxable > 0 else 0.0)
+    take_home = max(0.0, gross - social_insurance - income_tax - resident_tax)
+    return {
+        "gross_salary": round(gross, 1),
+        "social_insurance": round(social_insurance, 1),
+        "income_tax": round(income_tax, 1),
+        "resident_tax": round(resident_tax, 1),
+        "annual_take_home": round(take_home, 1),
+        "monthly_take_home_yen": int(round(take_home * 10_000 / 12 / 1000) * 1000),
+    }
+
+
+def default_household_budget(monthly_take_home_yen: int) -> dict[str, int]:
+    """Return a balanced editable monthly budget rounded to 1,000 yen."""
+    ratios = {
+        "rent": 0.28,
+        "utilities": 0.05,
+        "communications": 0.03,
+        "food": 0.14,
+        "social": 0.08,
+        "transport": 0.05,
+        "investment": 0.10,
+    }
+    return {
+        key: int(round(monthly_take_home_yen * ratio / 1000) * 1000)
+        for key, ratio in ratios.items()
+    }
+
+
+def max_monthly_investment_yen(state: dict[str, Any]) -> int:
+    """Return take-home remaining after the six non-investment budget items."""
+    if not state.get("profession"):
+        return 50_000
+    take_home = int(
+        estimate_take_home(annual_salary(state), int(state["age"]))[
+            "monthly_take_home_yen"
+        ]
+    )
+    budget = state.get("household_budget") or {}
+    fixed_costs = sum(int(budget.get(key, 0)) for key in BUDGET_KEYS if key != "investment")
+    return max(0, take_home - fixed_costs)
+
+
+def set_household_budget(
+    state: dict[str, Any], budget: dict[str, int]
+) -> dict[str, Any]:
+    """Save the adult monthly budget after validating it against take-home pay."""
+    if not state.get("profession"):
+        raise ValueError("Choose a career before setting an adult budget.")
+    if set(budget) != set(BUDGET_KEYS):
+        raise ValueError("Budget must contain every expense category.")
+    clean_budget = {key: int(value) for key, value in budget.items()}
+    if any(value < 0 for value in clean_budget.values()):
+        raise ValueError("Budget values cannot be negative.")
+    take_home = int(
+        estimate_take_home(annual_salary(state), int(state["age"]))[
+            "monthly_take_home_yen"
+        ]
+    )
+    if sum(clean_budget.values()) > take_home:
+        raise ValueError("Monthly spending cannot exceed monthly take-home pay.")
+
+    new_state = copy.deepcopy(state)
+    new_state["household_budget"] = clean_budget
+    new_state["monthly_contribution_yen"] = clean_budget["investment"]
+    return new_state
 
 
 def career_probability(state: dict[str, Any], career_key: str) -> int:
@@ -199,6 +351,7 @@ def play_period(
     event_option_key: str,
     quiz_answer_index: int,
     learning_percent: int = 10,
+    monthly_investment_yen: int | None = None,
 ) -> dict[str, Any]:
     """Simulate every year until the next five-year or milestone checkpoint."""
     if state["ended"]:
@@ -212,7 +365,21 @@ def play_period(
     if not 0 <= learning_percent <= 30:
         raise ValueError("Learning percent must be between 0 and 30.")
 
+    monthly_investment = (
+        int(state["monthly_contribution_yen"])
+        if monthly_investment_yen is None
+        else int(monthly_investment_yen)
+    )
+    if monthly_investment < 0:
+        raise ValueError("Monthly investment cannot be negative.")
+    if state.get("profession") and state.get("household_budget"):
+        if monthly_investment > max_monthly_investment_yen(state):
+            raise ValueError("Monthly investment exceeds take-home pay after living costs.")
+    elif monthly_investment > 50_000:
+        raise ValueError("Pre-career monthly investment must be 0 to 50,000 yen.")
+
     new_state = copy.deepcopy(state)
+    new_state["monthly_contribution_yen"] = monthly_investment
     start_age = int(new_state["age"])
     target_age = next_checkpoint_age(new_state)
     event = current_event(new_state)
@@ -240,16 +407,10 @@ def play_period(
     yearly_rates: list[dict[str, float]] = []
 
     for age in range(start_age, target_age):
-        salary = annual_salary(new_state)
-        family_or_self_saving = min(
-            MINOR_NISA_ANNUAL_LIMIT,
-            new_state["monthly_contribution_yen"] * 12 / 10_000,
-        )
-        salary_saving = salary * 0.05 if new_state.get("profession") else 0.0
-        planned = family_or_self_saving + salary_saving
+        planned = monthly_investment * 12 / 10_000
 
         school_year = age < new_state["social_age"]
-        learning_spend = family_or_self_saving * learning_percent / 100 if school_year else 0.0
+        learning_spend = planned * learning_percent / 100 if school_year else 0.0
         financial_contribution = max(0.0, planned - learning_spend)
         total_learning_spend += learning_spend
         if school_year:
@@ -295,6 +456,8 @@ def play_period(
 
     new_state["target_allocation"] = dict(allocation)
     new_state["rebalance"] = bool(rebalance)
+    if new_state.get("household_budget"):
+        new_state["household_budget"]["investment"] = monthly_investment
     new_state["happiness"] = max(0, min(100, new_state["happiness"]))
     new_state["knowledge"] = max(0, min(100, new_state["knowledge"]))
     new_state["turn"] += 1
@@ -334,6 +497,7 @@ def play_period(
         "quiz_correct": quiz_correct,
         "quiz_explanation": quiz["explanation"],
         "learning_spend": round(total_learning_spend, 1),
+        "monthly_investment_yen": monthly_investment,
         "nisa_added": round(nisa_added, 1),
         "breakdown": breakdown,
     }
