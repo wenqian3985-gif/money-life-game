@@ -7,6 +7,7 @@ import streamlit as st
 from content import CAREERS, PRODUCTS
 from game_engine import (
     ASSET_KEYS,
+    BUDGET_KEYS,
     MINOR_NISA_TOTAL_LIMIT,
     annual_salary,
     career_probability,
@@ -14,12 +15,27 @@ from game_engine import (
     create_new_game,
     current_event,
     current_quiz,
+    default_household_budget,
     ending_profile,
+    estimate_take_home,
+    max_monthly_investment_yen,
     next_checkpoint_age,
     play_period,
     real_net_worth,
+    set_household_budget,
     total_assets,
 )
+
+
+BUDGET_LABELS = {
+    "rent": "🏠 家賃",
+    "utilities": "💡 光熱費",
+    "communications": "📱 通信費",
+    "food": "🍚 食費",
+    "social": "🎈 交際費",
+    "transport": "🚃 交通費",
+    "investment": "🌱 投資",
+}
 
 
 st.set_page_config(
@@ -69,6 +85,10 @@ def yen(value: float) -> str:
     return f"{value:,.1f}万円"
 
 
+def monthly_yen(value: int | float) -> str:
+    return f"{value:,.0f}円"
+
+
 def hero(title: str, message: str, sub: str = "") -> None:
     st.markdown(
         f"""
@@ -106,9 +126,11 @@ def render_sidebar() -> None:
         st.caption("金額、相場、職業到達確率は学習用に単純化したゲーム設定です。投資成果・就職・年収を予測または保証しません。")
 
 
-def render_products() -> None:
-    st.markdown("#### 🧰 まず、5つの道具を知ろう")
-    st.caption("カードの『くわしく見る』を押すと、子ども向け説明とNISAでの扱いが開きます。")
+def render_product_allocation(state: dict) -> dict[str, int]:
+    """Show each product's explanation together with its allocation input."""
+    st.markdown("#### 🧩 ⑤ 商品を知って、投資割合を決める")
+    st.caption("説明を読んでから、その商品の割合を入力してください。5つの合計を100%にします。")
+    allocation: dict[str, int] = {}
     cols = st.columns(5)
     for col, (key, product) in zip(cols, PRODUCTS.items()):
         with col:
@@ -123,6 +145,18 @@ def render_products() -> None:
                 st.success(product["story"])
                 st.write(product["detail"])
                 st.markdown(f"**こどもNISA：** {product['nisa']}")
+            allocation[key] = int(
+                st.number_input(
+                    "投資割合（%）",
+                    min_value=0,
+                    max_value=100,
+                    value=int(state["target_allocation"][key]),
+                    step=5,
+                    key=f"allocation_{state['turn']}_{key}",
+                )
+            )
+    st.markdown(f"**割合の合計：{sum(allocation.values())}%**")
+    return allocation
 
 
 def render_asset_chart(state: dict) -> None:
@@ -160,6 +194,7 @@ def render_last_result(result: dict | None) -> None:
         )
         if result["learning_spend"]:
             st.caption(f"夢の準備に使ったお金：{yen(result['learning_spend'])}")
+        st.caption(f"設定した毎月の投資金額：{monthly_yen(result['monthly_investment_yen'])}")
         if result["nisa_added"]:
             st.caption(f"この期間に、こどもNISA対象として数えた積立：{yen(result['nisa_added'])}")
         breakdown = pd.DataFrame(result["breakdown"])
@@ -199,7 +234,7 @@ def start_screen() -> None:
             name = st.text_input("子どもの名前", value="悠然", max_chars=12)
             start_age = st.slider("いま何歳？", 0, 17, 11)
             social_age = st.slider("何歳から社会人になる？", 18, 30, 22)
-            monthly = st.slider("毎月、貯蓄・投資に回す金額", 0, 50_000, 10_000, 5_000, format="%d円")
+            monthly = st.slider("最初の毎月の投資金額", 0, 50_000, 10_000, 5_000, format="%d円")
             difficulty = st.radio("ことばの難しさ", ["小学校高学年", "中学生"], horizontal=True)
             started = st.form_submit_button("🚀 この設定でスタート", use_container_width=True)
         if started:
@@ -238,14 +273,78 @@ def career_screen(state: dict) -> None:
         use_container_width=True,
     )
     label_to_key = {f"{item['emoji']} {item['name']}": item["key"] for item in CAREERS}
-    with st.form("career_form"):
-        selected_label = st.radio("いちばん挑戦したい仕事", list(label_to_key), horizontal=False)
-        selected = next(item for item in CAREERS if item["key"] == label_to_key[selected_label])
-        st.info(f"{selected['message']}\n\n準備：{selected['skills']}")
-        submit = st.form_submit_button("🌟 この夢に挑戦する", use_container_width=True)
-    if submit:
-        st.session_state.game = choose_career(state, selected["key"])
-        st.rerun()
+    selected_label = st.radio(
+        "いちばん挑戦したい仕事",
+        list(label_to_key),
+        horizontal=False,
+        key=f"career_choice_{state['turn']}",
+    )
+    selected = next(item for item in CAREERS if item["key"] == label_to_key[selected_label])
+    st.info(f"{selected['message']}\n\n準備：{selected['skills']}")
+
+    # The career result is deterministic for a given game and choice, so the
+    # actual starting salary can be used to build the budget before confirming.
+    preview_state = choose_career(state, selected["key"])
+    career_result = preview_state["career_result"]
+    profession = preview_state["profession"]
+    icon = "🎉" if career_result["achieved"] else "🧭"
+    st.markdown(
+        f"""<div class="card career">{icon} <b>{profession['emoji']} {profession['name']}として働く場合</b><br>
+        ゲーム内確率 {career_result['probability']}%／サイコロ {career_result['roll']} — {career_result['message']}</div>""",
+        unsafe_allow_html=True,
+    )
+
+    salary = annual_salary(preview_state)
+    take_home = estimate_take_home(salary, state["age"])
+    st.markdown("### 🧾 給料から手取りを計算しよう")
+    pay_cols = st.columns(5)
+    pay_cols[0].metric("月の総支給", monthly_yen(salary * 10_000 / 12))
+    pay_cols[1].metric("社会保険料", f"−{monthly_yen(take_home['social_insurance'] * 10_000 / 12)}")
+    pay_cols[2].metric("所得税", f"−{monthly_yen(take_home['income_tax'] * 10_000 / 12)}")
+    pay_cols[3].metric("住民税", f"−{monthly_yen(take_home['resident_tax'] * 10_000 / 12)}")
+    pay_cols[4].metric("月の手取り", monthly_yen(take_home["monthly_take_home_yen"]))
+    st.caption(
+        "2026年の公表税率を参考に、東京在住・会社員・扶養なしとして単純化した学習用概算です。"
+        "実際の手取りは地域、年齢、扶養、会社の制度などで変わります。"
+    )
+
+    st.markdown("### 🏠 手取りの使い道を決めよう")
+    st.caption("家賃などを自分で設定し、残った範囲で毎月の投資金額を決めます。")
+    defaults = default_household_budget(int(take_home["monthly_take_home_yen"]))
+    budget: dict[str, int] = {}
+    budget_cols = st.columns(2)
+    for index, key in enumerate(BUDGET_KEYS):
+        with budget_cols[index % 2]:
+            budget[key] = int(
+                st.number_input(
+                    BUDGET_LABELS[key],
+                    min_value=0,
+                    max_value=int(take_home["monthly_take_home_yen"]),
+                    value=defaults[key],
+                    step=1_000,
+                    format="%d",
+                    key=f"budget_{selected['key']}_{key}",
+                    help="1か月あたりの金額（円）",
+                )
+            )
+
+    monthly_total = sum(budget.values())
+    monthly_remaining = int(take_home["monthly_take_home_yen"]) - monthly_total
+    summary_cols = st.columns(3)
+    summary_cols[0].metric("手取り", monthly_yen(take_home["monthly_take_home_yen"]))
+    summary_cols[1].metric("設定した支出＋投資", monthly_yen(monthly_total))
+    summary_cols[2].metric("まだ使い道を決めていないお金", monthly_yen(monthly_remaining))
+    if monthly_remaining < 0:
+        st.error(f"手取りを{monthly_yen(abs(monthly_remaining))}超えています。金額を見直してください。")
+    else:
+        st.success("手取りの範囲に収まっています。残りは予備費や自由費として考えられます。")
+
+    if st.button("🌟 この仕事と家計でスタート", use_container_width=True):
+        if monthly_remaining < 0:
+            st.error("支出と投資を手取り以内にしてから進んでください。")
+        else:
+            st.session_state.game = set_household_budget(preview_state, budget)
+            st.rerun()
 
 
 def game_screen(state: dict) -> None:
@@ -291,8 +390,6 @@ def game_screen(state: dict) -> None:
         <h3>{event['title']}</h3><p>{event['description']}</p></div>""",
         unsafe_allow_html=True,
     )
-    render_products()
-
     with st.form(f"period_form_{state['turn']}"):
         option_labels = {item["label"]: item["key"] for item in event["options"]}
         event_label = st.radio("① あなたならどうする？", list(option_labels))
@@ -311,25 +408,37 @@ def game_screen(state: dict) -> None:
             )
         else:
             learning_percent = 0
-            st.caption("③ 社会人になったので、この期間は給料の5%も積立に加えます。")
+            take_home = estimate_take_home(annual_salary(state), state["age"])
+            household_budget = state.get("household_budget") or {}
+            living_costs = sum(
+                int(household_budget.get(key, 0))
+                for key in BUDGET_KEYS
+                if key != "investment"
+            )
+            st.markdown("#### 🧾 ③ 現在の毎月の家計")
+            cashflow_cols = st.columns(3)
+            cashflow_cols[0].metric("手取り", monthly_yen(take_home["monthly_take_home_yen"]))
+            cashflow_cols[1].metric("生活費", monthly_yen(living_costs))
+            cashflow_cols[2].metric("投資に回せる上限", monthly_yen(max_monthly_investment_yen(state)))
+            st.caption("生活費は職業を選んだときの設定です。給料は年齢とともにゲーム内で変化します。")
 
-        st.markdown("#### 🧩 ④ 金融商品の目標配分を自分で決める")
-        st.caption("5つの合計を100%にしてください。0%の商品があってもOKです。")
-        allocation = {}
-        alloc_cols = st.columns(5)
-        for col, key in zip(alloc_cols, ASSET_KEYS):
-            with col:
-                allocation[key] = int(
-                    st.number_input(
-                        f"{PRODUCTS[key]['emoji']} {PRODUCTS[key]['name']}",
-                        min_value=0,
-                        max_value=100,
-                        value=int(state["target_allocation"][key]),
-                        step=5,
-                        key=f"allocation_{state['turn']}_{key}",
-                    )
-                )
-        st.markdown(f"**いまの合計：{sum(allocation.values())}%**")
+        st.markdown("#### 💴 ④ 毎月の投資金額を決める")
+        monthly_max = max_monthly_investment_yen(state) if profession else 50_000
+        monthly_default = min(int(state["monthly_contribution_yen"]), monthly_max)
+        monthly_investment = int(
+            st.number_input(
+                "毎月の投資金額（円）",
+                min_value=0,
+                max_value=monthly_max,
+                value=monthly_default,
+                step=1_000,
+                format="%d",
+                help="この金額を、下で決める割合に分けて毎月投資します。",
+            )
+        )
+        st.caption(f"1年間では {monthly_yen(monthly_investment * 12)} を投資する設定です。")
+
+        allocation = render_product_allocation(state)
         rebalance = st.toggle(
             "毎年リバランスする",
             value=bool(state["rebalance"]),
@@ -343,15 +452,19 @@ def game_screen(state: dict) -> None:
         elif sum(allocation.values()) != 100:
             st.error(f"配分の合計が{sum(allocation.values())}%です。100%になるよう直してください。")
         else:
-            st.session_state.game = play_period(
-                state,
-                allocation,
-                rebalance,
-                option_labels[event_label],
-                quiz["options"].index(quiz_label),
-                learning_percent,
-            )
-            st.rerun()
+            try:
+                st.session_state.game = play_period(
+                    state,
+                    allocation,
+                    rebalance,
+                    option_labels[event_label],
+                    quiz["options"].index(quiz_label),
+                    learning_percent,
+                    monthly_investment,
+                )
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
 
     render_asset_chart(state)
     if state["reason_history"]:
@@ -383,8 +496,10 @@ def ending_screen(state: dict) -> None:
 
 # A deployment can briefly reconnect an open browser with the previous version's
 # session dictionary. Reset only that incompatible in-memory state.
-if "game" in st.session_state and "start_age" not in st.session_state.game:
-    del st.session_state.game
+if "game" in st.session_state:
+    required_state_keys = {"start_age", "household_budget"}
+    if not required_state_keys.issubset(st.session_state.game):
+        del st.session_state.game
 
 render_sidebar()
 if "game" not in st.session_state:
