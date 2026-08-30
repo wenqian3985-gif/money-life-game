@@ -338,7 +338,10 @@ def start_screen() -> None:
         )
         st.info("2027年1月開始予定の『こどもNISA』は0～17歳が対象。年60万円、非課税保有限度額600万円としてゲームに反映しています。")
     with right:
-        with st.form("start_form"):
+        # Keep the start action outside st.form.  Some embedded Streamlit Cloud
+        # sessions failed to deliver the form-submit event even though the
+        # button looked enabled; a normal button reruns the app reliably.
+        with st.container(border=True):
             st.markdown("### 🌱 冒険の設定")
             name = st.text_input("子どもの名前", value="", max_chars=12, placeholder="名前を入力")
             start_age = st.slider("いま何歳？", 0, 17, 11)
@@ -356,7 +359,12 @@ def start_screen() -> None:
             )
             monthly = st.slider("最初の毎月の投資金額", 0, 50_000, 10_000, 5_000, format="%d円")
             difficulty = st.radio("ことばの難しさ", ["小学校高学年", "中学生"], horizontal=True)
-            started = st.form_submit_button("🚀 この設定でスタート", use_container_width=True)
+            started = st.button(
+                "🚀 この設定でスタート",
+                key="start_game_button",
+                type="primary",
+                use_container_width=True,
+            )
         if started:
             st.session_state.game = create_new_game(
                 name,
